@@ -161,6 +161,20 @@ bun test test/server/session-spawn-join.test.ts
 ### Chunk 080 — 협업 인터페이스(최소): 세션 제어 UX 정리
 - **브랜치**: `feat/inspect-080-interface`
 - **목표**: “누가/어떻게” 세션을 제어하는지 최소 인터페이스 하나를 확정(현 레포 구조에 맞춤)
+- **CLI 사용 예시(최소 인터페이스)**
+
+```bash
+# 부모 세션 목록
+opencode session list
+
+# 자식 세션 스폰
+child=$(opencode session spawn <parentSessionID> --title "child-task")
+
+# (child 세션에서 작업 진행 후)
+
+# 자식 결과 합류(부모에 synthetic 요약 메시지 추가 + 이벤트 기록)
+opencode session join <parentSessionID> "$child"
+```
 - **완료 조건(DoD)**
   - [ ] 최소 엔드포인트/CLI/TUI 흐름 중 1개를 사용자 시나리오로 문서화
   - [ ] 권한/승인 흐름 초안

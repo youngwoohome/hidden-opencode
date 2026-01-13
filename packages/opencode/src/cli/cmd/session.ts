@@ -1,6 +1,7 @@
 import type { Argv } from "yargs"
 import { cmd } from "./cmd"
 import { Session } from "../../session"
+import { SessionSpawn } from "../../session/spawn"
 import { bootstrap } from "../bootstrap"
 import { UI } from "../ui"
 import { Locale } from "../../util/locale"
@@ -38,7 +39,8 @@ function pagerCmd(): string[] {
 export const SessionCommand = cmd({
   command: "session",
   describe: "manage sessions",
-  builder: (yargs: Argv) => yargs.command(SessionListCommand).demandCommand(),
+  builder: (yargs: Argv) =>
+    yargs.command(SessionListCommand).command(SessionSpawnCommand).command(SessionJoinCommand).demandCommand(),
   async handler() {},
 })
 
@@ -98,6 +100,84 @@ export const SessionListCommand = cmd({
         await proc.exited
       } else {
         console.log(output)
+      }
+    })
+  },
+})
+
+export const SessionSpawnCommand = cmd({
+  command: "spawn <parent>",
+  describe: "spawn a child session",
+  builder: (yargs: Argv) => {
+    return yargs
+      .positional("parent", {
+        describe: "parent session id",
+        type: "string",
+        demandOption: true,
+      })
+      .option("title", {
+        describe: "child session title",
+        type: "string",
+      })
+      .option("directory", {
+        describe: "child working directory (defaults to current directory)",
+        type: "string",
+      })
+      .option("format", {
+        describe: "output format",
+        type: "string",
+        choices: ["json", "id"],
+        default: "id",
+      })
+  },
+  handler: async (args) => {
+    await bootstrap(process.cwd(), async () => {
+      const child = await SessionSpawn.spawn({
+        parentSessionID: args.parent as string,
+        title: args.title as string | undefined,
+        directory: args.directory as string | undefined,
+      })
+      if (args.format === "json") {
+        console.log(JSON.stringify(child, null, 2))
+      } else {
+        console.log(child.id)
+      }
+    })
+  },
+})
+
+export const SessionJoinCommand = cmd({
+  command: "join <parent> <child>",
+  describe: "join a child session into a parent (writes synthetic summary message + event logs)",
+  builder: (yargs: Argv) => {
+    return yargs
+      .positional("parent", {
+        describe: "parent session id",
+        type: "string",
+        demandOption: true,
+      })
+      .positional("child", {
+        describe: "child session id",
+        type: "string",
+        demandOption: true,
+      })
+      .option("format", {
+        describe: "output format",
+        type: "string",
+        choices: ["text", "json"],
+        default: "text",
+      })
+  },
+  handler: async (args) => {
+    await bootstrap(process.cwd(), async () => {
+      const result = await SessionSpawn.join({
+        parentSessionID: args.parent as string,
+        childSessionID: args.child as string,
+      })
+      if (args.format === "json") {
+        console.log(JSON.stringify(result, null, 2))
+      } else {
+        console.log(result.summary)
       }
     })
   },
