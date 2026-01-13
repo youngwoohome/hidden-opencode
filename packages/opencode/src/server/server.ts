@@ -62,6 +62,13 @@ import { SessionSpawn } from "@/session/spawn"
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
 
+const SSE_HEARTBEAT_MS = (() => {
+  const raw = process.env.OPENCODE_SSE_HEARTBEAT_MS
+  const parsed = raw ? Number(raw) : NaN
+  if (Number.isFinite(parsed) && parsed > 0) return parsed
+  return 30000
+})()
+
 export namespace Server {
   const log = Log.create({ service: "server" })
 
@@ -81,7 +88,7 @@ export namespace Server {
   export const App: () => Hono = lazy(
     () =>
       // TODO: Break server.ts into smaller route files to fix type inference
-      app
+      (app as Hono<any, any, any>)
         .onError((err, c) => {
           log.error("failed", {
             error: err,
@@ -91,6 +98,7 @@ export namespace Server {
             if (err instanceof Storage.NotFoundError) status = 404
             else if (err instanceof Provider.ModelNotFoundError) status = 400
             else if (err.name.startsWith("Worktree")) status = 400
+            else if (err.name === "SessionConcurrencyLimitError") status = 429
             else status = 500
             return c.json(err.toObject(), { status })
           }
@@ -219,7 +227,7 @@ export namespace Server {
                     },
                   }),
                 })
-              }, 30000)
+              }, SSE_HEARTBEAT_MS)
 
               await new Promise<void>((resolve) => {
                 stream.onAbort(() => {
@@ -262,7 +270,14 @@ export namespace Server {
           },
         )
         .use(async (c, next) => {
-          let directory = c.req.query("directory") || c.req.header("x-opencode-directory") || process.cwd()
+          // When running in a remote sandbox, clients may still send a local machine path via
+          // `x-opencode-directory`. Allow the server operator to override the effective directory
+          // to a sandbox-local path to avoid bootstrapping against a non-existent directory.
+          let directory =
+            process.env.OPENCODE_SERVER_DIRECTORY ||
+            c.req.query("directory") ||
+            c.req.header("x-opencode-directory") ||
+            process.cwd()
           try {
             directory = decodeURIComponent(directory)
           } catch {
@@ -893,6 +908,7 @@ export namespace Server {
             z.object({
               title: z.string().optional(),
               directory: z.string().optional(),
+              useWorktree: z.boolean().optional(),
             }),
           ),
           async (c) => {
@@ -903,6 +919,7 @@ export namespace Server {
               parentSessionID,
               title: body.title,
               directory: body.directory,
+              useWorktree: body.useWorktree,
             })
             return c.json(child)
           },
@@ -1104,8 +1121,9 @@ export namespace Server {
           }),
           validator("json", Session.create.schema.optional()),
           async (c) => {
+            const createdBy = c.req.header("x-opencode-user") ?? c.req.header("x-opencode-username") ?? undefined
             const body = c.req.valid("json") ?? {}
-            const session = await Session.create(body)
+            const session = await Session.create({ ...body, createdBy })
             return c.json(session)
           },
         )
@@ -1646,7 +1664,7 @@ export namespace Server {
                   },
                 },
               },
-              ...errors(400, 404),
+              ...errors(400, 404, 429),
             },
           }),
           validator(
@@ -1678,7 +1696,7 @@ export namespace Server {
               204: {
                 description: "Prompt accepted",
               },
-              ...errors(400, 404),
+              ...errors(400, 404, 429),
             },
           }),
           validator(
@@ -1689,13 +1707,13 @@ export namespace Server {
           ),
           validator("json", SessionPrompt.PromptInput.omit({ sessionID: true })),
           async (c) => {
-            c.status(204)
-            c.header("Content-Type", "application/json")
-            return stream(c, async () => {
-              const sessionID = c.req.valid("param").sessionID
-              const body = c.req.valid("json")
-              SessionPrompt.prompt({ ...body, sessionID })
-            })
+            const sessionID = c.req.valid("param").sessionID
+            const body = c.req.valid("json")
+            // Fire-and-forget. Results are streamed via SSE `/event`.
+            // Do NOT use streaming response here: some HTTP edges (e.g., Modal) can keep
+            // the request pending if the response isn't completed immediately.
+            void SessionPrompt.prompt({ ...body, sessionID })
+            return c.body("", 204)
           },
         )
         .post(
@@ -1718,7 +1736,7 @@ export namespace Server {
                   },
                 },
               },
-              ...errors(400, 404),
+              ...errors(400, 404, 429),
             },
           }),
           validator(
@@ -1750,7 +1768,7 @@ export namespace Server {
                   },
                 },
               },
-              ...errors(400, 404),
+              ...errors(400, 404, 429),
             },
           }),
           validator(
@@ -3038,7 +3056,7 @@ export namespace Server {
                     properties: {},
                   }),
                 })
-              }, 30000)
+              }, SSE_HEARTBEAT_MS)
 
               await new Promise<void>((resolve) => {
                 stream.onAbort(() => {
