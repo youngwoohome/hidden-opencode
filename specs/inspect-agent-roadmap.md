@@ -81,6 +81,16 @@ bun test test/server/session-smoke.test.ts
 ### Chunk 030 — 로컬 샌드박스(워크트리/격리 디렉토리) 기반 실행
 - **브랜치**: `feat/inspect-030-local-sandbox`
 - **목표**: 세션마다 격리된 작업 디렉토리(예: git worktree 또는 copy-on-write 유사)를 사용
+- **스모크/테스트 커맨드(권장)**
+
+```bash
+cd packages/opencode
+bun test test/server/worktree.test.ts
+```
+
+- **검증 포인트**
+  - `/experimental/worktree`로 worktree 생성 후, 즉시 list에 sandbox로 나타남
+  - `/experimental/worktree`(DELETE)로 worktree 제거 후, list에서 사라짐
 - **완료 조건(DoD)**
   - [ ] 세션 시작 시 작업 디렉토리 준비/정리 로직
   - [ ] 의존성 설치/캐시 전략(최소 1개) 문서화
