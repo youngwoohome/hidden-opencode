@@ -55,6 +55,7 @@ import { QuestionRoute } from "./question"
 import { Installation } from "@/installation"
 import { MDNS } from "./mdns"
 import { Worktree } from "../worktree"
+import { SessionEventLog } from "@/session/event-log"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -269,6 +270,8 @@ export namespace Server {
             directory,
             init: InstanceBootstrap,
             async fn() {
+              // Chunk 050: enable per-session structured event logs (instance-scoped bus).
+              SessionEventLog.init()
               return next()
             },
           })
@@ -823,6 +826,45 @@ export namespace Server {
             log.info("SEARCH", { url: c.req.url })
             const session = await Session.get(sessionID)
             return c.json(session)
+          },
+        )
+        .get(
+          "/session/:sessionID/event",
+          describeRoute({
+            summary: "Get session events",
+            description: "Retrieve structured session event logs (tool runs, errors, etc.) for observability.",
+            operationId: "session.events",
+            responses: {
+              200: {
+                description: "List of events",
+                content: {
+                  "application/json": {
+                    schema: resolver(SessionEventLog.Event.array()),
+                  },
+                },
+              },
+              ...errors(400, 404),
+            },
+          }),
+          validator(
+            "param",
+            z.object({
+              sessionID: Session.get.schema,
+            }),
+          ),
+          validator(
+            "query",
+            z.object({
+              limit: z.coerce.number().optional(),
+            }),
+          ),
+          async (c) => {
+            const sessionID = c.req.valid("param").sessionID
+            // ensure the session exists (for 404 parity with other session endpoints)
+            await Session.get(sessionID)
+            const limit = c.req.valid("query").limit
+            const events = await SessionEventLog.list({ sessionID, limit })
+            return c.json(events)
           },
         )
         .get(
