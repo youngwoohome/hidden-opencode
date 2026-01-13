@@ -143,6 +143,17 @@ bun test test/server/ui-snapshot.test.ts
 ### Chunk 070 — 멀티 세션/하위 에이전트 스폰(parentID)
 - **브랜치**: `feat/inspect-070-spawn`
 - **목표**: 큰 작업을 하위 세션으로 분해하고, 결과를 부모 세션에 합류하는 규칙 수립
+- **스모크/테스트 커맨드(권장)**
+
+```bash
+cd packages/opencode
+bun test test/server/session-spawn-join.test.ts
+```
+
+- **검증 포인트**
+  - `POST /session/:sessionID/spawn`로 child session 생성
+  - `POST /session/:sessionID/join`로 child 요약이 parent에 synthetic text로 추가됨
+  - parent의 `/session/:sessionID/event`에 `spawn`/`join` 이벤트가 남음
 - **완료 조건(DoD)**
   - [ ] `parentID` 기반 자식 세션 생성/종료
   - [ ] 자식 결과 요약/합류(최소 1 전략)

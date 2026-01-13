@@ -57,6 +57,7 @@ import { MDNS } from "./mdns"
 import { Worktree } from "../worktree"
 import { SessionEventLog } from "@/session/event-log"
 import { SessionUISnapshot } from "@/session/ui-snapshot"
+import { SessionSpawn } from "@/session/spawn"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -866,6 +867,88 @@ export namespace Server {
             const limit = c.req.valid("query").limit
             const events = await SessionEventLog.list({ sessionID, limit })
             return c.json(events)
+          },
+        )
+        .post(
+          "/session/:sessionID/spawn",
+          describeRoute({
+            summary: "Spawn child session",
+            description: "Create a child session with parentID set to the provided session.",
+            operationId: "session.spawn",
+            responses: {
+              200: {
+                description: "Child session",
+                content: {
+                  "application/json": {
+                    schema: resolver(Session.Info),
+                  },
+                },
+              },
+              ...errors(400, 404),
+            },
+          }),
+          validator("param", z.object({ sessionID: Session.get.schema })),
+          validator(
+            "json",
+            z.object({
+              title: z.string().optional(),
+              directory: z.string().optional(),
+            }),
+          ),
+          async (c) => {
+            const parentSessionID = c.req.valid("param").sessionID
+            await Session.get(parentSessionID)
+            const body = c.req.valid("json")
+            const child = await SessionSpawn.spawn({
+              parentSessionID,
+              title: body.title,
+              directory: body.directory,
+            })
+            return c.json(child)
+          },
+        )
+        .post(
+          "/session/:sessionID/join",
+          describeRoute({
+            summary: "Join child session",
+            description:
+              "Summarize a child session and append a synthetic summary message to the parent session. Also records spawn/join events.",
+            operationId: "session.join",
+            responses: {
+              200: {
+                description: "Join result",
+                content: {
+                  "application/json": {
+                    schema: resolver(
+                      z.object({
+                        ok: z.literal(true),
+                        summary: z.string(),
+                        messageID: z.string(),
+                        childSessionID: z.string(),
+                      }),
+                    ),
+                  },
+                },
+              },
+              ...errors(400, 404),
+            },
+          }),
+          validator("param", z.object({ sessionID: Session.get.schema })),
+          validator(
+            "json",
+            z.object({
+              childSessionID: Session.get.schema,
+            }),
+          ),
+          async (c) => {
+            const parentSessionID = c.req.valid("param").sessionID
+            await Session.get(parentSessionID)
+            const body = c.req.valid("json")
+            const result = await SessionSpawn.join({
+              parentSessionID,
+              childSessionID: body.childSessionID,
+            })
+            return c.json(result)
           },
         )
         .post(

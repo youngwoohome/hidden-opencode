@@ -3,6 +3,7 @@ import { MessageV2 } from "@/session/message-v2"
 import { Storage } from "@/storage/storage"
 import { Instance } from "@/project/instance"
 import z from "zod"
+import { ulid } from "ulid"
 
 function truncateText(input: string, max = 64_000) {
   if (input.length <= max) return { text: input, truncated: false as const, originalLength: input.length }
@@ -42,7 +43,36 @@ export namespace SessionEventLog {
     })
     .meta({ ref: "SessionToolEvent" })
 
-  export const Event = z.discriminatedUnion("type", [ToolEvent]).meta({ ref: "SessionEvent" })
+  export const SpawnEvent = z
+    .object({
+      type: z.literal("spawn"),
+      id: z.string(),
+      sessionID: z.string(),
+      childSessionID: z.string(),
+      time: z.object({
+        created: z.number(),
+      }),
+      title: z.string().optional(),
+      directory: z.string().optional(),
+    })
+    .meta({ ref: "SessionSpawnEvent" })
+
+  export const JoinEvent = z
+    .object({
+      type: z.literal("join"),
+      id: z.string(),
+      sessionID: z.string(),
+      childSessionID: z.string(),
+      time: z.object({
+        created: z.number(),
+      }),
+      summary: z.string(),
+      summaryTruncated: z.boolean().optional(),
+      summaryLength: z.number().optional(),
+    })
+    .meta({ ref: "SessionJoinEvent" })
+
+  export const Event = z.discriminatedUnion("type", [ToolEvent, SpawnEvent, JoinEvent]).meta({ ref: "SessionEvent" })
   export type Event = z.infer<typeof Event>
 
   // Instance-scoped state (Bus is instance-scoped as well).
@@ -105,6 +135,42 @@ export namespace SessionEventLog {
 
       await Storage.write(["event", part.sessionID, eventID], event)
     })
+  }
+
+  export async function write(event: Event) {
+    await Storage.write(["event", event.sessionID, event.id], event)
+  }
+
+  export async function spawn(input: { sessionID: string; childSessionID: string; title?: string; directory?: string }) {
+    const created = Date.now()
+    const event: z.infer<typeof SpawnEvent> = {
+      type: "spawn",
+      id: "spawn-" + ulid(),
+      sessionID: input.sessionID,
+      childSessionID: input.childSessionID,
+      time: { created },
+      title: input.title,
+      directory: input.directory,
+    }
+    await write(event)
+    return event
+  }
+
+  export async function join(input: { sessionID: string; childSessionID: string; summary: string }) {
+    const created = Date.now()
+    const info = truncateText(input.summary, 64_000)
+    const event: z.infer<typeof JoinEvent> = {
+      type: "join",
+      id: "join-" + ulid(),
+      sessionID: input.sessionID,
+      childSessionID: input.childSessionID,
+      time: { created },
+      summary: info.text,
+      summaryTruncated: info.truncated,
+      summaryLength: info.originalLength,
+    }
+    await write(event)
+    return event
   }
 
   export async function list(input: { sessionID: string; limit?: number }) {
