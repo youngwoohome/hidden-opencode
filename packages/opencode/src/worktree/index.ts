@@ -61,6 +61,20 @@ export namespace Worktree {
     }),
   )
 
+  export const RemoveFailedError = NamedError.create(
+    "WorktreeRemoveFailedError",
+    z.object({
+      message: z.string(),
+    }),
+  )
+
+  export const InvalidDirectoryError = NamedError.create(
+    "WorktreeInvalidDirectoryError",
+    z.object({
+      message: z.string(),
+    }),
+  )
+
   const ADJECTIVES = [
     "brave",
     "calm",
@@ -204,6 +218,10 @@ export namespace Worktree {
       throw new CreateFailedError({ message: errorText(created) || "Failed to create git worktree" })
     }
 
+    // Register the new sandbox immediately so `Project.sandboxes()` reflects it without requiring
+    // the user to manually open the worktree first.
+    await Project.fromDirectory(info.directory).catch(() => undefined)
+
     const cmd = input?.startCommand?.trim()
     if (!cmd) return info
 
@@ -213,5 +231,51 @@ export namespace Worktree {
     }
 
     return info
+  })
+
+  export const RemoveInput = z
+    .object({
+      directory: z.string(),
+      branch: z.string().optional(),
+      pruneBranch: z.boolean().optional().default(true),
+    })
+    .meta({
+      ref: "WorktreeRemoveInput",
+    })
+  export type RemoveInput = z.infer<typeof RemoveInput>
+
+  export const remove = fn(RemoveInput, async (input) => {
+    if (Instance.project.vcs !== "git") {
+      throw new NotGitError({ message: "Worktrees are only supported for git projects" })
+    }
+
+    const root = path.join(Global.Path.data, "worktree", Instance.project.id)
+    const resolvedRoot = path.resolve(root)
+    const resolvedDir = path.resolve(input.directory)
+
+    // Guardrail: only allow removing worktrees created inside our managed root
+    if (resolvedDir !== resolvedRoot && !resolvedDir.startsWith(resolvedRoot + path.sep)) {
+      throw new InvalidDirectoryError({
+        message: `Refusing to remove worktree outside managed root: ${resolvedDir}`,
+      })
+    }
+
+    const removed = await $`git worktree remove --force ${resolvedDir}`.quiet().nothrow().cwd(Instance.worktree)
+    if (removed.exitCode !== 0) {
+      throw new RemoveFailedError({ message: errorText(removed) || "Failed to remove git worktree" })
+    }
+
+    if (input.pruneBranch && input.branch) {
+      // Best-effort: the branch might already be deleted or not exist.
+      await $`git branch -D ${input.branch}`.quiet().nothrow().cwd(Instance.worktree)
+    }
+
+    // Best-effort cleanup of remaining directory contents.
+    await fs.rm(resolvedDir, { recursive: true, force: true }).catch(() => undefined)
+
+    // Recompute sandboxes list (prunes non-existent dirs).
+    await Project.fromDirectory(Instance.worktree).catch(() => undefined)
+
+    return true
   })
 }

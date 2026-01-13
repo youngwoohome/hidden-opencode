@@ -657,6 +657,31 @@ export namespace Server {
             return c.json(worktree)
           },
         )
+        .delete(
+          "/experimental/worktree",
+          describeRoute({
+            summary: "Remove worktree",
+            description: "Remove a git worktree that was created for the current project.",
+            operationId: "worktree.remove",
+            responses: {
+              200: {
+                description: "Worktree removed",
+                content: {
+                  "application/json": {
+                    schema: resolver(z.boolean()),
+                  },
+                },
+              },
+              ...errors(400),
+            },
+          }),
+          validator("json", Worktree.remove.schema),
+          async (c) => {
+            const body = c.req.valid("json")
+            const removed = await Worktree.remove(body)
+            return c.json(removed)
+          },
+        )
         .get(
           "/experimental/worktree",
           describeRoute({
