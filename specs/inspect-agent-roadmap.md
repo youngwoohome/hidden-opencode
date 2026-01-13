@@ -199,6 +199,16 @@ bun run --conditions=browser ./src/index.ts pr-create --dry-run
 ### Chunk 100 — 안전망(권한 게이트/리소스 제한)
 - **브랜치**: `feat/inspect-100-safety`
 - **목표**: 운영 가능한 안전장치(승인/차단/레이트리밋/리소스 캡)
+- **스모크/테스트 커맨드(권장)**
+
+```bash
+cd packages/opencode
+bun test test/tool/bash-dangerous.test.ts
+```
+
+- **검증 포인트**
+  - `bash` 툴에서 위험 패턴 감지 시 `bash_dangerous` 권한을 추가로 요청함
+  - timeout이 `OPENCODE_EXPERIMENTAL_BASH_MAX_TIMEOUT_MS` 상한을 넘지 않도록 캡됨
 - **완료 조건(DoD)**
   - [ ] 위험 명령 차단 + 사용자 승인 플로우(최소 1개)
   - [ ] 리소스 제한(최소 1개: 시간/동시성/디스크 등)

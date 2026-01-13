@@ -16,9 +16,11 @@ import { Shell } from "@/shell/shell"
 
 import { BashArity } from "@/permission/arity"
 import { Truncate } from "./truncation"
+import { BashSafety } from "./bash-safety"
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
+const MAX_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_MAX_TIMEOUT_MS || 10 * 60 * 1000
 
 export const log = Log.create({ service: "bash-tool" })
 
@@ -79,7 +81,23 @@ export const BashTool = Tool.define("bash", async () => {
       if (params.timeout !== undefined && params.timeout < 0) {
         throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
       }
-      const timeout = params.timeout ?? DEFAULT_TIMEOUT
+      const timeoutRaw = params.timeout ?? DEFAULT_TIMEOUT
+      const timeout = Math.min(timeoutRaw, MAX_TIMEOUT)
+
+      // Extra safety gate for potentially dangerous commands, even if bash is broadly allowed.
+      const danger = BashSafety.reasons(params.command)
+      if (danger.length > 0) {
+        await ctx.ask({
+          permission: "bash_dangerous",
+          patterns: ["dangerous"],
+          always: ["dangerous"],
+          metadata: {
+            reasons: danger,
+            command: params.command,
+            cwd,
+          },
+        })
+      }
       const tree = await parser().then((p) => p.parse(params.command))
       if (!tree) {
         throw new Error("Failed to parse command")
