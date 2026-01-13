@@ -14,7 +14,11 @@ export namespace BashSafety {
     }
 
     // destructive rm
-    if (/\brm\b/.test(c) && /\s-.*\br\b/.test(c) && /\s-.*\bf\b/.test(c)) {
+    // Handle combined short flags like "-rf" as well as separate "-r -f".
+    const rmHasRecursive =
+      /(^|\s)-[^\s]*r/.test(c) || /(^|\s)--recursive(\s|$)/.test(c) || /(^|\s)--preserve-root(\s|$)/.test(c)
+    const rmHasForce = /(^|\s)-[^\s]*f/.test(c) || /(^|\s)--force(\s|$)/.test(c)
+    if (/\brm\b/.test(c) && rmHasRecursive && rmHasForce) {
       if (/\brm\b[^\n]*\s\/(\s|$)/.test(c) || /\brm\b[^\n]*\s\/\*/.test(c)) {
         found.push("rm -rf targeting root")
       } else {
