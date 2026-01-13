@@ -21,11 +21,26 @@ function formatChildSummary(input: {
   const completed = toolParts.filter((p) => p.state.status === "completed").length
   const errored = toolParts.filter((p) => p.state.status === "error").length
 
+  const lastToolOutput = (() => {
+    const last = toolParts.at(-1)
+    if (!last) return ""
+    if (last.state.status === "completed") return last.state.output
+    if (last.state.status === "error") return last.state.error
+    return ""
+  })()
+
+  const trimOutput = (text: string, max = 800) => {
+    const t = text.trim()
+    if (!t) return ""
+    return t.length > max ? t.slice(0, max) + "\n…(truncated)" : t
+  }
+
   const lines = [
     `Joined child session: ${input.child.id}`,
     input.child.title ? `Title: ${input.child.title}` : undefined,
     `Directory: ${input.child.directory}`,
     `Tools: ${toolParts.length} (completed ${completed}, error ${errored})`,
+    lastToolOutput ? `Last tool output:\n${trimOutput(lastToolOutput)}` : undefined,
     lastAssistantText ? `Last assistant text:\n${lastAssistantText}` : undefined,
   ].filter(Boolean) as string[]
 
