@@ -126,6 +126,16 @@ bun test test/session/closed-loop.test.ts
 ### Chunk 060 — 프론트엔드 검증(옵션: 헤드리스) 최소 1 케이스
 - **브랜치**: `feat/inspect-060-ui-verify`
 - **목표**: headless 브라우저로 스냅샷(스크린샷 또는 DOM 스냅샷) 1개를 수집/비교
+- **스모크/테스트 커맨드(권장)**
+
+```bash
+cd packages/opencode
+bun test test/server/ui-snapshot.test.ts
+```
+
+- **검증 포인트**
+  - `POST /session/:sessionID/ui/snapshot`로 HTML(DOM) 스냅샷 저장
+  - `POST /session/:sessionID/ui/snapshot/compare`로 diff 요약(changed/additions/deletions/diff) 확인
 - **완료 조건(DoD)**
   - [ ] 스냅샷 생성 커맨드/툴 1개
   - [ ] 비교 로직(단순 diff여도 OK) 1개
