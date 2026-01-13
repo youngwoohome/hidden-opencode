@@ -5,6 +5,8 @@ import { Identifier } from "@/id/id"
 import { MessageV2 } from "@/session/message-v2"
 import { Instance } from "@/project/instance"
 import { SessionEventLog } from "@/session/event-log"
+import { Flag } from "@/flag/flag"
+import { Worktree } from "@/worktree"
 
 function formatChildSummary(input: {
   child: Session.Info
@@ -52,19 +54,43 @@ export namespace SessionSpawn {
     parentSessionID: Identifier.schema("session"),
     title: z.string().optional(),
     directory: z.string().optional(),
+    useWorktree: z.boolean().optional(),
   })
   export type SpawnInput = z.infer<typeof SpawnInput>
 
   export const spawn = fn(SpawnInput, async (input) => {
     const parent = await Session.get(input.parentSessionID)
 
-    // Default to current instance directory (project root in most cases).
-    const directory = input.directory ?? Instance.directory
+    // Safety: prevent unbounded self-spawn explosions (PDF recommends hard limits).
+    const maxChildren = Flag.OPENCODE_EXPERIMENTAL_SPAWN_MAX_CHILDREN
+    if (maxChildren) {
+      const existing = await Session.children(parent.id)
+      if (existing.length >= maxChildren) {
+        throw new Error(
+          `Refusing to spawn more child sessions: parent ${parent.id} already has ${existing.length} children (max ${maxChildren}).`,
+        )
+      }
+    }
+
+    const directory = await (async () => {
+      if (input.directory) return input.directory
+
+      const useWorktree = input.useWorktree ?? Flag.OPENCODE_EXPERIMENTAL_SPAWN_WORKTREE
+      if (!useWorktree) return Instance.directory
+
+      // Best-effort local sandboxing: spawn a dedicated git worktree for the child session.
+      // This keeps filesystem changes isolated per child session without requiring remote VM sandboxes yet.
+      const wt = await Worktree.create({
+        name: input.title ?? `child-${parent.id}`,
+      })
+      return wt.directory
+    })()
 
     const child = await Session.createNext({
       parentID: parent.id,
       directory,
       title: input.title,
+      createdBy: parent.createdBy,
     })
 
     await SessionEventLog.spawn({

@@ -52,6 +52,17 @@ export namespace SessionPrompt {
   const log = Log.create({ service: "session.prompt" })
   export const OUTPUT_TOKEN_MAX = Flag.OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX || 32_000
 
+  export const ConcurrencyLimitError = NamedError.create(
+    "SessionConcurrencyLimitError",
+    z.object({
+      scope: z.enum(["project", "user"]),
+      sessionID: Identifier.schema("session"),
+      limit: z.number(),
+      active: z.number(),
+      createdBy: z.string().optional(),
+    }),
+  )
+
   const state = Instance.state(
     () => {
       const data: Record<
@@ -229,9 +240,56 @@ export namespace SessionPrompt {
     return parts
   }
 
-  function start(sessionID: string) {
+  async function start(sessionID: string) {
     const s = state()
     if (s[sessionID]) return
+
+    // Global concurrency limits (project + optional per-user).
+    // Enforced only when starting a NEW loop for this session.
+    const activeIDs = Object.keys(s)
+
+    const projectMax = (() => {
+      const raw = process.env.OPENCODE_SESSION_CONCURRENCY_MAX
+      if (!raw) return undefined
+      const n = Number(raw)
+      return Number.isInteger(n) && n > 0 ? n : undefined
+    })()
+    if (projectMax && activeIDs.length >= projectMax) {
+      throw new ConcurrencyLimitError({
+        scope: "project",
+        sessionID,
+        limit: projectMax,
+        active: activeIDs.length,
+      })
+    }
+
+    const userMax = (() => {
+      const raw = process.env.OPENCODE_USER_SESSION_CONCURRENCY_MAX
+      if (!raw) return undefined
+      const n = Number(raw)
+      return Number.isInteger(n) && n > 0 ? n : undefined
+    })()
+    if (userMax) {
+      const session = await Session.get(sessionID)
+      const createdBy = session.createdBy
+      if (createdBy) {
+        let activeForUser = 0
+        for (const id of activeIDs) {
+          const info = await Session.get(id).catch(() => undefined)
+          if (info?.createdBy === createdBy) activeForUser++
+        }
+        if (activeForUser >= userMax) {
+          throw new ConcurrencyLimitError({
+            scope: "user",
+            sessionID,
+            limit: userMax,
+            active: activeForUser,
+            createdBy,
+          })
+        }
+      }
+    }
+
     const controller = new AbortController()
     s[sessionID] = {
       abort: controller,
@@ -255,7 +313,7 @@ export namespace SessionPrompt {
   }
 
   export const loop = fn(Identifier.schema("session"), async (sessionID) => {
-    const abort = start(sessionID)
+    const abort = await start(sessionID)
     if (!abort) {
       return new Promise<MessageV2.WithParts>((resolve, reject) => {
         const callbacks = state()[sessionID].callbacks
@@ -1226,7 +1284,7 @@ export namespace SessionPrompt {
   })
   export type ShellInput = z.infer<typeof ShellInput>
   export async function shell(input: ShellInput) {
-    const abort = start(input.sessionID)
+    const abort = await start(input.sessionID)
     if (!abort) {
       throw new Session.BusyError(input.sessionID)
     }

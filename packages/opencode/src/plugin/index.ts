@@ -8,6 +8,7 @@ import { BunProc } from "../bun"
 import { Instance } from "../project/instance"
 import { Flag } from "../flag/flag"
 import { CodexAuthPlugin } from "./codex"
+import { SyncGatingPlugin } from "./sync-gating"
 import { Session } from "../session"
 import { NamedError } from "@opencode-ai/util/error"
 
@@ -17,7 +18,7 @@ export namespace Plugin {
   const BUILTIN = ["opencode-copilot-auth@0.0.12", "opencode-anthropic-auth@0.0.8"]
 
   // Built-in plugins that are directly imported (not installed from npm)
-  const INTERNAL_PLUGINS: PluginInstance[] = [CodexAuthPlugin]
+  const INTERNAL_PLUGINS: PluginInstance[] = [CodexAuthPlugin, SyncGatingPlugin]
 
   const state = Instance.state(async () => {
     const client = createOpencodeClient({

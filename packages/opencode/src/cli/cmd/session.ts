@@ -123,6 +123,11 @@ export const SessionSpawnCommand = cmd({
         describe: "child working directory (defaults to current directory)",
         type: "string",
       })
+      .option("worktree", {
+        describe: "spawn child in a dedicated git worktree (local isolation)",
+        type: "boolean",
+        default: false,
+      })
       .option("format", {
         describe: "output format",
         type: "string",
@@ -136,6 +141,7 @@ export const SessionSpawnCommand = cmd({
         parentSessionID: args.parent as string,
         title: args.title as string | undefined,
         directory: args.directory as string | undefined,
+        useWorktree: args.worktree === true,
       })
       if (args.format === "json") {
         console.log(JSON.stringify(child, null, 2))

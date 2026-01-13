@@ -29,6 +29,24 @@ export const ERRORS = {
       },
     },
   },
+  429: {
+    description: "Too many requests",
+    content: {
+      "application/json": {
+        schema: resolver(
+          z
+            .object({
+              name: z.string(),
+              message: z.string(),
+              data: z.any().optional(),
+            })
+            .meta({
+              ref: "TooManyRequestsError",
+            }),
+        ),
+      },
+    },
+  },
 } as const
 
 export function errors(...codes: number[]) {

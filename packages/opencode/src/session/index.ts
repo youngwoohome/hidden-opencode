@@ -41,6 +41,7 @@ export namespace Session {
       id: Identifier.schema("session"),
       projectID: z.string(),
       directory: z.string(),
+      createdBy: z.string().optional(),
       parentID: Identifier.schema("session").optional(),
       summary: z
         .object({
@@ -129,6 +130,7 @@ export namespace Session {
         parentID: Identifier.schema("session").optional(),
         title: z.string().optional(),
         permission: Info.shape.permission,
+        createdBy: z.string().optional(),
       })
       .optional(),
     async (input) => {
@@ -137,6 +139,7 @@ export namespace Session {
         directory: Instance.directory,
         title: input?.title,
         permission: input?.permission,
+        createdBy: input?.createdBy,
       })
     },
   )
@@ -191,12 +194,14 @@ export namespace Session {
     parentID?: string
     directory: string
     permission?: PermissionNext.Ruleset
+    createdBy?: string
   }) {
     const result: Info = {
       id: Identifier.descending("session", input.id),
       version: Installation.VERSION,
       projectID: Instance.project.id,
       directory: input.directory,
+      createdBy: input.createdBy,
       parentID: input.parentID,
       title: input.title ?? createDefaultTitle(!!input.parentID),
       permission: input.permission,

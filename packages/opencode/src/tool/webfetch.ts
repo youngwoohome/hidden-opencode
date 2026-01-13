@@ -23,10 +23,27 @@ export const WebFetchTool = Tool.define("webfetch", {
       throw new Error("URL must start with http:// or https://")
     }
 
+    const parsed = new URL(params.url)
+
+    // Separate (and more policy-friendly) network permission gate.
+    // This lets admins allow/deny per host (or other patterns) instead of blindly allowing all webfetch usage.
+    await ctx.ask({
+      permission: "network",
+      patterns: [parsed.host],
+      always: [parsed.host],
+      metadata: {
+        url: params.url,
+        host: parsed.host,
+        protocol: parsed.protocol,
+      },
+    })
+
     await ctx.ask({
       permission: "webfetch",
       patterns: [params.url],
-      always: ["*"],
+      // Safer default: persist approval only for this origin.
+      // Users can still choose "always" for broader patterns via the permission UI if needed.
+      always: [`${parsed.origin}/*`],
       metadata: {
         url: params.url,
         format: params.format,

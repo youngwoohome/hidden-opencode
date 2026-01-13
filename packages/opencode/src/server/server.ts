@@ -1713,7 +1713,7 @@ export namespace Server {
             // Do NOT use streaming response here: some HTTP edges (e.g., Modal) can keep
             // the request pending if the response isn't completed immediately.
             void SessionPrompt.prompt({ ...body, sessionID })
-            return c.body("", 204)
+            return c.body(null, 204)
           },
         )
         .post(

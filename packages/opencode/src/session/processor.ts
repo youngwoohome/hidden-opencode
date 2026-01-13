@@ -273,6 +273,7 @@ export namespace SessionProcessor {
                           Flag.OPENCODE_EXPERIMENTAL_CLOSED_LOOP_COMMANDS?.split("\n").map((x) => x.trim()).filter(Boolean) ??
                           ["bun run typecheck", "bun test"]
 
+                        const verifyStart = Date.now()
                         const verifyPart: MessageV2.ToolPart = {
                           id: Identifier.ascending("part"),
                           messageID: input.assistantMessage.id,
@@ -284,7 +285,7 @@ export namespace SessionProcessor {
                             status: "running",
                             input: { commands },
                             title: "closed-loop: verify",
-                            time: { start: Date.now() },
+                            time: { start: verifyStart },
                           },
                         }
                         await Session.updatePart(verifyPart)
@@ -317,7 +318,7 @@ export namespace SessionProcessor {
                                 commands,
                               },
                               time: {
-                                start: verifyPart.state.time.start,
+                                start: verifyStart,
                                 end: Date.now(),
                               },
                             },
@@ -336,7 +337,7 @@ export namespace SessionProcessor {
                                 output,
                               },
                               time: {
-                                start: verifyPart.state.time.start,
+                                start: verifyStart,
                                 end: Date.now(),
                               },
                             },

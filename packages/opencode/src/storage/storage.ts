@@ -175,6 +175,19 @@ export namespace Storage {
     })
   }
 
+  /**
+   * Like read(), but returns undefined when the resource doesn't exist.
+   * Useful for hot paths where "not found" is an expected state.
+   */
+  export async function readOptional<T>(key: string[]) {
+    try {
+      return await read<T>(key)
+    } catch (e) {
+      if (e instanceof NotFoundError) return undefined
+      throw e
+    }
+  }
+
   export async function update<T>(key: string[], fn: (draft: T) => void) {
     const dir = await state().then((x) => x.dir)
     const target = path.join(dir, ...key) + ".json"

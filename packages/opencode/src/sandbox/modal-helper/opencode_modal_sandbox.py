@@ -174,8 +174,8 @@ def opencode_server() -> None:
         "OPENCODE_DISABLE_DEFAULT_PLUGINS": "true",
         "OPENCODE_DISABLE_LSP_DOWNLOAD": "true",
         "OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER": "true",
-        "OPENCODE_SSE_HEARTBEAT_MS": "10000",
     }
+    env.setdefault("OPENCODE_SSE_HEARTBEAT_MS", "10000")
     subprocess.Popen(args, cwd=repo_dir, env=env)
     return
 

@@ -27,6 +27,7 @@ import { WebCommand } from "./cli/cmd/web"
 import { PrCommand } from "./cli/cmd/pr"
 import { SessionCommand } from "./cli/cmd/session"
 import { PrCreateCommand } from "./cli/cmd/pr-create"
+import { SandboxCommand } from "./cli/cmd/sandbox"
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
@@ -99,6 +100,7 @@ const cli = yargs(hideBin(process.argv))
   .command(PrCommand)
   .command(PrCreateCommand)
   .command(SessionCommand)
+  .command(SandboxCommand)
   .fail((msg, err) => {
     if (
       msg?.startsWith("Unknown argument") ||

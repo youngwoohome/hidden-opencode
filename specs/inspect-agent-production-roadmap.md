@@ -18,6 +18,18 @@
 - **PR/CI(최소)**: PR 생성 “드라이런 플랜” CLI
 - **안전망(최소)**: 위험 bash 추가 승인(`bash_dangerous`) + timeout cap
 
+추가로(이 로드맵 작성 이후) 아래 하드닝을 반영:
+
+- **PR create 실행 모드(부분)**: `pr-create --dry-run=false`에서 실제 git/gh 실행 + `--watch`로 체크 폴링
+- **권한/관측 강화(부분)**:
+  - permission asked/replied 이벤트를 session event log로 저장
+  - 동기화 락 동안 write tool을 대기시키는 훅(옵션) + 대기 시간을 session event log로 저장
+- **네트워크 egress 게이트(부분)**:
+  - `webfetch`에서 host 단위 `network` permission 추가
+  - `bash`에서(옵션 플래그) curl/wget/ssh/scp/rsync/nc/telnet의 host 추출 후 `network` permission 추가
+- **로컬 격리(부분)**:
+  - child session spawn 시 전용 git worktree로 분리 가능(옵션 플래그/입력)
+
 즉, “제품화”를 위한 토대는 잡혔고, 이제는 **격리/운영/보안/관측/UX/통합**을 강화해야 합니다.
 
 ---
@@ -44,6 +56,9 @@ PDF의 핵심은 세션별 격리된 개발환경입니다. 현재는 로컬 wor
 - **샌드박스 타입 결정**
   - [ ] VM 기반(예: Firecracker/VM) vs 컨테이너 기반 vs Managed Sandbox(예: Modal) 결정
   - [ ] 네트워크 정책(내부 서비스만/인터넷 허용/도메인 allowlist) 결정
+- **원격 샌드박스 E2E (Modal 1플로우)**
+  - [ ] `opencode sandbox create`로 Modal 샌드박스 부팅 → 원격 `opencode serve` URL 반환 → `opencode run --attach <url>`로 prompt 실행
+  - [ ] 부팅 중 `.opencode/sync.pending` 락 + `OPENCODE_SYNC_GATING=true`로 write 지연(읽기 허용)
 - **샌드박스 수명/정책**
   - [ ] 세션→샌드박스 1:1 매핑(기본) + 재사용 정책(옵션) 정의
   - [ ] TTL/idle timeout/강제 종료 정책
@@ -83,7 +98,8 @@ PDF의 핵심은 세션별 격리된 개발환경입니다. 현재는 로컬 wor
 현재 event log는 “tool 이벤트” 중심입니다. 프로덕션은 “작업 전체”를 재현 가능해야 합니다.
 
 - **이벤트 스키마 확장**
-  - [ ] permission asked/replied 기록
+  - [x] permission asked/replied 기록
+  - [x] sync gating(wait) 이벤트 기록(옵션 플래그 기반)
   - [ ] spawn/join, closed-loop verify 결과, worktree/sandbox lifecycle 이벤트
   - [ ] 모델 호출 메타데이터(모델/토큰/비용/재시도/에러 분류)
 - **아티팩트 저장**
@@ -99,9 +115,9 @@ PDF의 핵심은 세션별 격리된 개발환경입니다. 현재는 로컬 wor
 - **정책 엔진**
   - [ ] allow/deny/ask를 tool별 + 패턴별 + 프로젝트별로 관리 UI/API
   - [ ] 위험 명령 정책(예: `rm -rf`, `curl | bash`, `sudo`, `dd`) 지속 확장
-  - [ ] 네트워크 egress 제어(도메인 allowlist)
+  - [x] 네트워크 egress 제어(도메인 allowlist) — `network` permission + `webfetch`/`bash` 게이트(부분)
 - **레이트리밋/쿼터**
-  - [ ] 세션당/사용자당 동시 실행 수 제한
+  - [x] 세션당/사용자당 동시 실행 수 제한(부분: prompt loop 동시성 상한)
   - [ ] 시간/비용/토큰/디스크 사용량 쿼터
 - **감사 로그**
   - [ ] 누가 승인했는지(사용자/팀) 기록
@@ -136,6 +152,20 @@ MVP CLI는 유용하지만, PDF는 협업 모드(멀티플레이어)와 다양�
 - **2순위**: Phase 1(샌드박스 격리)에서 “네트워크/리소스 캡 + TTL”부터 도입
 - **3순위**: Phase 4(관측/재현)에서 “permission + verify + sandbox lifecycle” 이벤트 확장
 - **4순위**: Phase 2(Playwright)로 UI 스크린샷 비교 1 플로우
+
+---
+
+## 구현 메모(현재 레포 기준)
+
+- **sync gating(쓰기 차단)**
+  - 기본은 꺼져있고, 프로덕션 샌드박스 부팅/동기화 오케스트레이터가 켜는 방식
+  - 활성화: `OPENCODE_SYNC_GATING=true`
+  - 락 파일: `${sessionDir}/.opencode/sync.pending` (없으면 `${worktree}/.opencode/sync.pending`)
+  - 락이 존재하는 동안 `edit/write/patch/multiedit`는 대기하고, timeout 시 에러
+
+- **network permission**
+  - `webfetch`는 `network` permission을 host 단위로 요청한 뒤, `webfetch` permission을 origin 단위로 요청
+  - `bash`는 `OPENCODE_EXPERIMENTAL_NETWORK_GATING=true`일 때만 host 추출 후 `network` permission을 추가 요청
 
 ---
 

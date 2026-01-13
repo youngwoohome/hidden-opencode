@@ -165,6 +165,14 @@ export namespace Worktree {
       .catch(() => false)
   }
 
+  async function canonical(p: string) {
+    try {
+      return await fs.realpath(p)
+    } catch {
+      return path.resolve(p)
+    }
+  }
+
   function outputText(input: Uint8Array | undefined) {
     if (!input?.length) return ""
     return new TextDecoder().decode(input).trim()
@@ -220,17 +228,18 @@ export namespace Worktree {
 
     // Register the new sandbox immediately so `Project.sandboxes()` reflects it without requiring
     // the user to manually open the worktree first.
-    await Project.fromDirectory(info.directory).catch(() => undefined)
+    const resolvedDirectory = await canonical(info.directory)
+    await Project.fromDirectory(resolvedDirectory).catch(() => undefined)
 
     const cmd = input?.startCommand?.trim()
-    if (!cmd) return info
+    if (!cmd) return Info.parse({ ...info, directory: resolvedDirectory })
 
     const ran = await runStartCommand(info.directory, cmd)
     if (ran.exitCode !== 0) {
       throw new StartCommandFailedError({ message: errorText(ran) || "Worktree start command failed" })
     }
 
-    return info
+    return Info.parse({ ...info, directory: resolvedDirectory })
   })
 
   export const RemoveInput = z
@@ -250,8 +259,8 @@ export namespace Worktree {
     }
 
     const root = path.join(Global.Path.data, "worktree", Instance.project.id)
-    const resolvedRoot = path.resolve(root)
-    const resolvedDir = path.resolve(input.directory)
+    const resolvedRoot = await canonical(root)
+    const resolvedDir = await canonical(input.directory)
 
     // Guardrail: only allow removing worktrees created inside our managed root
     if (resolvedDir !== resolvedRoot && !resolvedDir.startsWith(resolvedRoot + path.sep)) {

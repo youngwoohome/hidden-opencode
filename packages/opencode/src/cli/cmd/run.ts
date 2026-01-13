@@ -262,7 +262,9 @@ export const RunCommand = cmd({
         })
       } else {
         const modelParam = args.model ? Provider.parseModel(args.model) : undefined
-        await sdk.session.prompt({
+        // In remote attach mode (Modal/etc), the HTTP edge may enforce request timeouts for long
+        // responses. Trigger asynchronously and rely on SSE `/event` to stream results.
+        await sdk.session.promptAsync({
           sessionID,
           agent: resolvedAgent,
           model: modelParam,

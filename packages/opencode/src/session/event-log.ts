@@ -2,6 +2,7 @@ import { Bus } from "@/bus"
 import { MessageV2 } from "@/session/message-v2"
 import { Storage } from "@/storage/storage"
 import { Instance } from "@/project/instance"
+import { PermissionNext } from "@/permission/next"
 import z from "zod"
 import { ulid } from "ulid"
 
@@ -43,6 +44,48 @@ export namespace SessionEventLog {
     })
     .meta({ ref: "SessionToolEvent" })
 
+  export const PermissionAskedEvent = z
+    .object({
+      type: z.literal("permission_asked"),
+      id: z.string(),
+      sessionID: z.string(),
+      time: z.object({
+        created: z.number(),
+      }),
+      request: PermissionNext.Request,
+    })
+    .meta({ ref: "SessionPermissionAskedEvent" })
+
+  export const PermissionRepliedEvent = z
+    .object({
+      type: z.literal("permission_replied"),
+      id: z.string(),
+      sessionID: z.string(),
+      time: z.object({
+        created: z.number(),
+      }),
+      requestID: z.string(),
+      reply: PermissionNext.Reply,
+    })
+    .meta({ ref: "SessionPermissionRepliedEvent" })
+
+  export const SyncWaitEvent = z
+    .object({
+      type: z.literal("sync_wait"),
+      id: z.string(),
+      sessionID: z.string(),
+      time: z.object({
+        created: z.number(),
+        start: z.number(),
+        end: z.number(),
+      }),
+      tool: z.string(),
+      lockPath: z.string(),
+      waitedMs: z.number(),
+      timedOut: z.boolean().optional(),
+    })
+    .meta({ ref: "SessionSyncWaitEvent" })
+
   export const SpawnEvent = z
     .object({
       type: z.literal("spawn"),
@@ -72,7 +115,9 @@ export namespace SessionEventLog {
     })
     .meta({ ref: "SessionJoinEvent" })
 
-  export const Event = z.discriminatedUnion("type", [ToolEvent, SpawnEvent, JoinEvent]).meta({ ref: "SessionEvent" })
+  export const Event = z
+    .discriminatedUnion("type", [ToolEvent, PermissionAskedEvent, PermissionRepliedEvent, SyncWaitEvent, SpawnEvent, JoinEvent])
+    .meta({ ref: "SessionEvent" })
   export type Event = z.infer<typeof Event>
 
   // Instance-scoped state (Bus is instance-scoped as well).
@@ -85,6 +130,35 @@ export namespace SessionEventLog {
     const s = state()
     if (s.initialized) return
     s.initialized = true
+
+    Bus.subscribe(PermissionNext.Event.Asked, async (evt) => {
+      const req = evt.properties
+      const created = Date.now()
+      const eventID = `permission-asked-${req.id}`
+      const event: z.infer<typeof PermissionAskedEvent> = {
+        type: "permission_asked",
+        id: eventID,
+        sessionID: req.sessionID,
+        time: { created },
+        request: req,
+      }
+      await Storage.write(["event", req.sessionID, eventID], event)
+    })
+
+    Bus.subscribe(PermissionNext.Event.Replied, async (evt) => {
+      const rep = evt.properties
+      const created = Date.now()
+      const eventID = `permission-replied-${rep.requestID}-${created}`
+      const event: z.infer<typeof PermissionRepliedEvent> = {
+        type: "permission_replied",
+        id: eventID,
+        sessionID: rep.sessionID,
+        time: { created },
+        requestID: rep.requestID,
+        reply: rep.reply,
+      }
+      await Storage.write(["event", rep.sessionID, eventID], event)
+    })
 
     Bus.subscribe(MessageV2.Event.PartUpdated, async (evt) => {
       const part = evt.properties.part
@@ -139,6 +213,29 @@ export namespace SessionEventLog {
 
   export async function write(event: Event) {
     await Storage.write(["event", event.sessionID, event.id], event)
+  }
+
+  export async function syncWait(input: {
+    sessionID: string
+    tool: string
+    lockPath: string
+    start: number
+    end: number
+    timedOut?: boolean
+  }) {
+    const created = Date.now()
+    const event: z.infer<typeof SyncWaitEvent> = {
+      type: "sync_wait",
+      id: "syncwait-" + ulid(),
+      sessionID: input.sessionID,
+      time: { created, start: input.start, end: input.end },
+      tool: input.tool,
+      lockPath: input.lockPath,
+      waitedMs: Math.max(0, input.end - input.start),
+      timedOut: input.timedOut,
+    }
+    await write(event)
+    return event
   }
 
   export async function spawn(input: { sessionID: string; childSessionID: string; title?: string; directory?: string }) {

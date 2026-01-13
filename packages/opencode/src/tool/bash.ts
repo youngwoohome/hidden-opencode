@@ -17,6 +17,7 @@ import { Shell } from "@/shell/shell"
 import { BashArity } from "@/permission/arity"
 import { Truncate } from "./truncation"
 import { BashSafety } from "./bash-safety"
+import { NetworkSafety } from "./network-safety"
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
@@ -106,6 +107,7 @@ export const BashTool = Tool.define("bash", async () => {
       if (!Instance.containsPath(cwd)) directories.add(cwd)
       const patterns = new Set<string>()
       const always = new Set<string>()
+      const networkHosts = new Set<string>()
 
       for (const node of tree.rootNode.descendantsOfType("command")) {
         if (!node) continue
@@ -123,6 +125,14 @@ export const BashTool = Tool.define("bash", async () => {
             continue
           }
           command.push(child.text)
+        }
+
+        // Optional network egress gating (production hardening).
+        // Extract likely hosts for common network tools and require an explicit "network" permission.
+        if (Flag.OPENCODE_EXPERIMENTAL_NETWORK_GATING && command.length > 0) {
+          for (const host of NetworkSafety.hostsFromArgs(command[0], command.slice(1))) {
+            networkHosts.add(host)
+          }
         }
 
         // not an exhaustive list, but covers most common cases
@@ -152,6 +162,18 @@ export const BashTool = Tool.define("bash", async () => {
           patterns.add(command.join(" "))
           always.add(BashArity.prefix(command).join(" ") + "*")
         }
+      }
+
+      if (networkHosts.size > 0) {
+        await ctx.ask({
+          permission: "network",
+          patterns: Array.from(networkHosts),
+          always: Array.from(networkHosts),
+          metadata: {
+            tool: "bash",
+            cwd,
+          },
+        })
       }
 
       if (directories.size > 0) {
