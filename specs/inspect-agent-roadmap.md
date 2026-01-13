@@ -182,6 +182,16 @@ opencode session join <parentSessionID> "$child"
 ### Chunk 090 — PR/CI 연동(후반): 드라이런 → 실제 PR
 - **브랜치**: `feat/inspect-090-pr-ci`
 - **목표**: 브랜치/커밋/PR 생성(드라이런부터) + CI 결과 수집
+- **스모크(드라이런) 커맨드(권장)**
+
+```bash
+cd packages/opencode
+bun run --conditions=browser ./src/index.ts pr-create --dry-run
+```
+
+- **검증 포인트**
+  - 현재 브랜치/dirty 여부/`git diff --stat`가 출력됨
+  - 실행될 `git`/`gh pr create` 커맨드가 “계획”으로 출력됨(실행은 하지 않음)
 - **완료 조건(DoD)**
   - [ ] 드라이런 모드(실제 push 없이 커맨드/계획만 출력)
   - [ ] 실제 PR 생성(옵션) 또는 레포별 토큰/권한 전략 문서화
