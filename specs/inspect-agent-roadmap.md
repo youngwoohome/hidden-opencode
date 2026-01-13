@@ -63,6 +63,17 @@ git checkout -b feat/inspect-010-roadmap
 - **범위**
   - 기존 `specs/project.md` 흐름을 기준으로, 실제로 동작하는 스모크 경로 1개를 만든다
   - (가능하면) 테스트 1개로 자동화
+- **스모크/테스트 커맨드(권장)**
+
+```bash
+cd packages/opencode
+bun test test/server/session-smoke.test.ts
+```
+
+- **검증 포인트**
+  - `/session`으로 세션 생성
+  - `/session/:sessionID/shell`로 `bash` 툴 실행(LLM 없이) 및 결과 저장
+  - `/session/:sessionID/message`로 메시지/파트가 실제로 조회됨
 - **완료 조건(DoD)**
   - [ ] 스모크 시나리오 문서화(어떤 커맨드로 무엇을 확인하는지)
   - [ ] 최소 자동 테스트 또는 반복 가능한 스모크 커맨드 제공
