@@ -15,6 +15,9 @@ import { Config } from "@/config/config"
 import { SessionCompaction } from "./compaction"
 import { PermissionNext } from "@/permission/next"
 import { Question } from "@/question"
+import { Flag } from "@/flag/flag"
+import { SessionClosedLoop } from "./closed-loop"
+import { ulid } from "ulid"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
@@ -264,6 +267,82 @@ export namespace SessionProcessor {
                         hash: patch.hash,
                         files: patch.files,
                       })
+
+                      if (Flag.OPENCODE_EXPERIMENTAL_CLOSED_LOOP) {
+                        const commands =
+                          Flag.OPENCODE_EXPERIMENTAL_CLOSED_LOOP_COMMANDS?.split("\n").map((x) => x.trim()).filter(Boolean) ??
+                          ["bun run typecheck", "bun test"]
+
+                        const verifyPart: MessageV2.ToolPart = {
+                          id: Identifier.ascending("part"),
+                          messageID: input.assistantMessage.id,
+                          sessionID: input.sessionID,
+                          type: "tool",
+                          callID: ulid(),
+                          tool: "bash",
+                          state: {
+                            status: "running",
+                            input: { commands },
+                            title: "closed-loop: verify",
+                            time: { start: Date.now() },
+                          },
+                        }
+                        await Session.updatePart(verifyPart)
+
+                        const verify = await SessionClosedLoop.verifyAndRevert({
+                          patch,
+                          commands,
+                          revertOnFail: true,
+                        })
+
+                        const output = verify.results
+                          .map((r) => {
+                            const header = `$ ${r.command}\n(exit ${r.exitCode})`
+                            const out = (r.stdout || "").trim()
+                            const err = (r.stderr || "").trim()
+                            return [header, out && `stdout:\n${out}`, err && `stderr:\n${err}`].filter(Boolean).join("\n\n")
+                          })
+                          .join("\n\n---\n\n")
+
+                        if (verify.ok) {
+                          await Session.updatePart({
+                            ...verifyPart,
+                            state: {
+                              status: "completed",
+                              input: { commands },
+                              output,
+                              title: "closed-loop: verify",
+                              metadata: {
+                                ok: true,
+                                commands,
+                              },
+                              time: {
+                                start: verifyPart.state.time.start,
+                                end: Date.now(),
+                              },
+                            },
+                          })
+                        } else {
+                          await Session.updatePart({
+                            ...verifyPart,
+                            state: {
+                              status: "error",
+                              input: { commands },
+                              error: "Closed-loop verification failed",
+                              metadata: {
+                                ok: false,
+                                reverted: verify.reverted,
+                                commands,
+                                output,
+                              },
+                              time: {
+                                start: verifyPart.state.time.start,
+                                end: Date.now(),
+                              },
+                            },
+                          })
+                        }
+                      }
                     }
                     snapshot = undefined
                   }

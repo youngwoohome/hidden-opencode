@@ -99,6 +99,18 @@ bun test test/server/worktree.test.ts
 ### Chunk 040 — Closed-loop 검증(테스트/타입체크) + 실패 처리
 - **브랜치**: `feat/inspect-040-closed-loop`
 - **목표**: 변경 후 자동 검증(타입체크/테스트) 실행 + 실패 시 최소 1회 재시도/롤백 전략
+- **스모크/테스트 커맨드(권장)**
+
+```bash
+cd packages/opencode
+bun test test/session/closed-loop.test.ts
+```
+
+- **사용 방법(실험 기능)**
+  - 기본적으로 `OPENCODE_EXPERIMENTAL_CLOSED_LOOP=true`일 때, 에이전트가 step에서 파일 변경을 만들면
+    자동으로 `bun run typecheck` → `bun test`를 실행합니다.
+  - 커맨드 오버라이드:
+    - `OPENCODE_EXPERIMENTAL_CLOSED_LOOP_COMMANDS`에 줄바꿈(`\n`)으로 커맨드를 나열
 - **완료 조건(DoD)**
   - [ ] 검증 단계 정의(예: typecheck → unit tests)
   - [ ] 실패 시 처리(중단/재시도/리버트) 최소 1개 구현
