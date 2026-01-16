@@ -17,6 +17,7 @@ Notes:
 - We deploy a unique Modal App per sandbox so it can live independently of this script process.
 - Modal SDK does not currently expose a stable "stop deployed app" API, so stop uses Modal CLI:
   `modal app stop <app_name>`.
+- When using registry images, set OPENCODE_MODAL_ADD_PYTHON=1 to force Modal to inject Python.
 """
 
 import json
@@ -312,13 +313,15 @@ def cmd_create(payload: Dict[str, Any]) -> None:
     python_version = os.environ.get("OPENCODE_MODAL_PYTHON_VERSION", "3.11")
     use_registry = os.environ.get("OPENCODE_MODAL_USE_REGISTRY_IMAGE", "").strip() in ("1", "true", "yes")
     debug_output = os.environ.get("OPENCODE_MODAL_ENABLE_OUTPUT", "").strip() in ("1", "true", "yes")
+    add_python = os.environ.get("OPENCODE_MODAL_ADD_PYTHON", "").strip() in ("1", "true", "yes")
 
     if use_registry and not image:
         die("OPENCODE_MODAL_IMAGE is required when OPENCODE_MODAL_USE_REGISTRY_IMAGE=1")
 
     if use_registry:
-        # Best-effort: may still fail depending on base image.
-        modal_image = modal.Image.from_registry(str(image), add_python=python_version)
+        # For custom images, assume Python is already present and avoid a Modal rebuild unless requested.
+        add_python_version = python_version if add_python else None
+        modal_image = modal.Image.from_registry(str(image), add_python=add_python_version)
     else:
         # Dev-friendly image: includes Python (for Modal), git/curl, and the opencode binary.
         modal_image = (

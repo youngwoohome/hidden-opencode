@@ -7,5 +7,3 @@ RUN apt-get update \
 ARG OPENCODE_BIN=dist/opencode-linux-x64/bin/opencode
 COPY ${OPENCODE_BIN} /usr/local/bin/opencode
 RUN chmod +x /usr/local/bin/opencode && opencode --version
-
-ENTRYPOINT ["opencode"]
