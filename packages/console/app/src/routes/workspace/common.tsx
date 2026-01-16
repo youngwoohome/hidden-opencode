@@ -45,7 +45,7 @@ export async function getLastSeenWorkspaceID() {
     const actor = Actor.assert("account")
     return Database.use(async (tx) =>
       tx
-        .select({ id: WorkspaceTable.id })
+        .select()
         .from(UserTable)
         .innerJoin(WorkspaceTable, eq(UserTable.workspaceID, WorkspaceTable.id))
         .where(
@@ -57,7 +57,7 @@ export async function getLastSeenWorkspaceID() {
         )
         .orderBy(desc(UserTable.timeSeen))
         .limit(1)
-        .then((x) => x[0]?.id),
+        .then((rows) => rows[0]?.workspace.id),
     )
   })
 }
@@ -96,10 +96,10 @@ export const queryBillingInfo = query(async (workspaceID: string) => {
   return withActor(async () => {
     const billing = await Billing.get()
     return {
-      ...billing,
-      reloadAmount: billing.reloadAmount ?? Billing.RELOAD_AMOUNT,
+      ...(billing ?? {}),
+      reloadAmount: billing?.reloadAmount ?? Billing.RELOAD_AMOUNT,
       reloadAmountMin: Billing.RELOAD_AMOUNT_MIN,
-      reloadTrigger: billing.reloadTrigger ?? Billing.RELOAD_TRIGGER,
+      reloadTrigger: billing?.reloadTrigger ?? Billing.RELOAD_TRIGGER,
       reloadTriggerMin: Billing.RELOAD_TRIGGER_MIN,
     }
   }, workspaceID)

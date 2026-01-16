@@ -1,5 +1,5 @@
 import { domain } from "./stage"
-import { ADMIN_SECRET, EMAILOCTOPUS_API_KEY } from "./secrets"
+import { ADMIN_SECRET } from "./secrets"
 
 const GITHUB_APP_ID = new sst.Secret("GITHUB_APP_ID")
 const GITHUB_APP_PRIVATE_KEY = new sst.Secret("GITHUB_APP_PRIVATE_KEY")

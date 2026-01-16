@@ -30,8 +30,8 @@ async function getCosts(workspaceID: string, year: number, month: number) {
     const endDate = new Date(year, month + 1, 0)
 
     // First query: get usage data without joining keys
-    const usageData = await Database.use((tx) =>
-      tx
+    const usageData = (await Database.use((tx) =>
+      (tx as any)
         .select({
           date: sql<string>`DATE(${UsageTable.timeCreated})`,
           model: UsageTable.model,
@@ -48,20 +48,20 @@ async function getCosts(workspaceID: string, year: number, month: number) {
           ),
         )
         .groupBy(sql`DATE(${UsageTable.timeCreated})`, UsageTable.model, UsageTable.keyID)
-        .then((x) =>
-          x.map((r) => ({
-            ...r,
-            totalCost: r.totalCost ? parseInt(r.totalCost) : 0,
+        .then((rows: any[]) =>
+          rows.map((row) => ({
+            ...row,
+            totalCost: row.totalCost ? parseInt(row.totalCost) : 0,
           })),
         ),
-    )
+    )) as Array<{ date: string; model: string; totalCost: number; keyId: string | null }>
 
     // Get unique key IDs from usage
     const usageKeyIds = new Set(usageData.map((r) => r.keyId).filter((id) => id !== null))
 
     // Second query: get all existing keys plus any keys from usage
-    const keysData = await Database.use((tx) =>
-      tx
+    const keysData = (await Database.use((tx) =>
+      (tx as any)
         .select({
           keyId: KeyTable.id,
           keyName: KeyTable.name,
@@ -80,7 +80,7 @@ async function getCosts(workspaceID: string, year: number, month: number) {
           ),
         )
         .orderBy(AuthTable.subject, KeyTable.name),
-    )
+    )) as Array<{ keyId: string; keyName: string; userEmail: string; timeDeleted: Date | null }>
 
     return {
       usage: usageData,

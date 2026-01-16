@@ -11,14 +11,7 @@ export namespace Key {
   export const list = fn(z.void(), async () => {
     const keys = await Database.use((tx) =>
       tx
-        .select({
-          id: KeyTable.id,
-          name: KeyTable.name,
-          key: KeyTable.key,
-          timeUsed: KeyTable.timeUsed,
-          userID: KeyTable.userID,
-          email: AuthTable.subject,
-        })
+        .select()
         .from(KeyTable)
         .innerJoin(UserTable, and(eq(KeyTable.userID, UserTable.id), eq(KeyTable.workspaceID, UserTable.workspaceID)))
         .innerJoin(AuthTable, and(eq(UserTable.accountID, AuthTable.accountID), eq(AuthTable.provider, "email")))
@@ -34,11 +27,19 @@ export namespace Key {
         .orderBy(sql`${KeyTable.name} DESC`),
     )
     // only return value for user's keys
-    return keys.map((key) => ({
-      ...key,
-      key: key.userID === Actor.userID() ? key.key : undefined,
-      keyDisplay: `${key.key.slice(0, 7)}...${key.key.slice(-4)}`,
-    }))
+    return keys.map((row) => {
+      const key = row.key
+      const keyValue = key.key
+      return {
+        id: key.id,
+        name: key.name,
+        key: key.userID === Actor.userID() ? keyValue : undefined,
+        keyDisplay: `${keyValue.slice(0, 7)}...${keyValue.slice(-4)}`,
+        timeUsed: key.timeUsed,
+        userID: key.userID,
+        email: row.auth.subject,
+      }
+    })
   })
 
   export const create = fn(

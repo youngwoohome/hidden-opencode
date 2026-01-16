@@ -15,16 +15,12 @@ export default $config({
   },
   async run() {
     const minimal = process.env.OPENCODE_MINIMAL === "1"
-    const disableEnterprise = process.env.OPENCODE_DISABLE_ENTERPRISE === "1"
     const consoleOnly = process.env.OPENCODE_CONSOLE_ONLY === "1"
     if (!consoleOnly) {
       await import("./infra/app.js")
     }
     if (!minimal || consoleOnly) {
       await import("./infra/console.js")
-      if (!disableEnterprise && !consoleOnly) {
-        await import("./infra/enterprise.js")
-      }
     }
   },
 })

@@ -48,7 +48,7 @@ const couponID =
 // Check if subscription is already tied to another workspace
 const existingSubscription = await Database.use((tx) =>
   tx
-    .select({ workspaceID: BillingTable.workspaceID })
+    .select()
     .from(BillingTable)
     .where(eq(BillingTable.subscriptionID, subscriptionID))
     .then((rows) => rows[0]),
@@ -63,7 +63,7 @@ if (existingSubscription) {
 // Look up the workspace billing and check if it already has a customer id or subscription
 const billing = await Database.use((tx) =>
   tx
-    .select({ customerID: BillingTable.customerID, subscriptionID: BillingTable.subscriptionID })
+    .select()
     .from(BillingTable)
     .where(eq(BillingTable.workspaceID, workspaceID))
     .then((rows) => rows[0]),
@@ -99,10 +99,11 @@ const paymentMethodType = paymentMethod?.type ?? null
 // Look up the user in the workspace
 const users = await Database.use((tx) =>
   tx
-    .select({ id: UserTable.id, email: AuthTable.subject })
+    .select()
     .from(UserTable)
     .innerJoin(AuthTable, and(eq(AuthTable.accountID, UserTable.accountID), eq(AuthTable.provider, "email")))
-    .where(and(eq(UserTable.workspaceID, workspaceID), isNull(UserTable.timeDeleted))),
+    .where(and(eq(UserTable.workspaceID, workspaceID), isNull(UserTable.timeDeleted)))
+    .then((rows) => rows.map((row) => ({ id: row.user.id, email: row.auth.subject }))),
 )
 if (users.length === 0) {
   console.error(`Error: No users found in workspace ${workspaceID}`)

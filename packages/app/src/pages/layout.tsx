@@ -1236,9 +1236,9 @@ export default function Layout(props: ParentProps) {
                 <IconButton icon="archive" variant="ghost" onClick={() => archiveSession(props.session)} />
               </TooltipKeybind>
             </Show>
-            <TooltipKeybind placement={props.mobile ? "bottom" : "right"} title="Delete session">
+            <Tooltip placement={props.mobile ? "bottom" : "right"} value="Delete session">
               <IconButton icon="circle-x" variant="ghost" onClick={() => deleteSession(props.session)} />
-            </TooltipKeybind>
+            </Tooltip>
           </div>
         </div>
       </>
@@ -1505,7 +1505,7 @@ export default function Layout(props: ParentProps) {
                     </Show>
                     <Show when={inspectLoading() && inspectSessions().length === 0}>
                       <div class="px-2 py-1 text-12-regular text-text-weak flex items-center gap-2">
-                        <Spinner size="small" class="text-text-weak" />
+                        <Spinner class="size-2.5 text-text-weak" />
                         Loading sessions
                       </div>
                     </Show>

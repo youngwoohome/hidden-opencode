@@ -395,8 +395,8 @@ export async function handler(
       throw new AuthError("Missing API key.")
     }
 
-    const data = await Database.use((tx) =>
-      tx
+    const data = (await Database.use((tx) =>
+      (tx as any)
         .select({
           apiKey: KeyTable.id,
           workspaceID: KeyTable.workspaceID,
@@ -450,8 +450,37 @@ export async function handler(
           ),
         )
         .where(and(eq(KeyTable.key, apiKey), isNull(KeyTable.timeDeleted)))
-        .then((rows) => rows[0]),
-    )
+        .then((rows: any[]) => rows[0]),
+    )) as {
+      apiKey: string
+      workspaceID: string
+      billing: {
+        balance: number
+        paymentMethodID: string | null
+        monthlyLimit: number | null
+        monthlyUsage: number | null
+        timeMonthlyUsageUpdated: Date | null
+        reloadTrigger: number | null
+        timeReloadLockedTill: Date | null
+      }
+      user: {
+        id: string
+        monthlyLimit: number | null
+        monthlyUsage: number | null
+        timeMonthlyUsageUpdated: Date | null
+      }
+      subscription:
+        | {
+            id: string
+            rollingUsage: number | null
+            fixedUsage: number | null
+            timeRollingUpdated: Date | null
+            timeFixedUpdated: Date | null
+          }
+        | null
+      provider: { credentials: unknown } | null
+      timeDisabled: Date | null
+    }
 
     if (!data) throw new AuthError("Invalid API key.")
     logger.metric({
@@ -567,7 +596,19 @@ export async function handler(
 
   function updateProviderKey(authInfo: AuthInfo, providerInfo: ProviderInfo) {
     if (!authInfo?.provider?.credentials) return
-    providerInfo.apiKey = authInfo.provider.credentials
+    const credentials = authInfo.provider.credentials as unknown
+    if (typeof credentials === "string") {
+      providerInfo.apiKey = credentials
+      return
+    }
+    if (
+      credentials &&
+      typeof credentials === "object" &&
+      "apiKey" in credentials &&
+      typeof (credentials as { apiKey?: unknown }).apiKey === "string"
+    ) {
+      providerInfo.apiKey = (credentials as { apiKey: string }).apiKey
+    }
   }
 
   async function trackUsage(

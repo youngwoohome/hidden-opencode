@@ -45,14 +45,12 @@ export async function GET(input: APIEvent) {
 
     const disabledModels = await Database.use((tx) =>
       tx
-        .select({
-          model: ModelTable.model,
-        })
+        .select()
         .from(KeyTable)
         .innerJoin(WorkspaceTable, eq(WorkspaceTable.id, KeyTable.workspaceID))
         .leftJoin(ModelTable, and(eq(ModelTable.workspaceID, KeyTable.workspaceID), isNull(ModelTable.timeDeleted)))
         .where(and(eq(KeyTable.key, apiKey), isNull(KeyTable.timeDeleted)))
-        .then((rows) => rows.map((row) => row.model)),
+        .then((rows) => rows.map((row) => row.model?.model).filter(Boolean) as string[]),
     )
 
     return disabledModels

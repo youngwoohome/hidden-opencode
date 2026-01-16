@@ -85,14 +85,16 @@ export namespace GithubRepoAllowlist {
       const repo = normalize(input.repo)
       return Database.use(async (tx) => {
         const any = await tx
-          .select({ id: GithubRepoAllowlistTable.id })
+          .select()
           .from(GithubRepoAllowlistTable)
-          .where(and(eq(GithubRepoAllowlistTable.workspaceID, input.workspaceID), isNull(GithubRepoAllowlistTable.timeDeleted)))
+          .where(
+            and(eq(GithubRepoAllowlistTable.workspaceID, input.workspaceID), isNull(GithubRepoAllowlistTable.timeDeleted)),
+          )
           .limit(1)
           .then((rows) => rows[0])
         if (!any) return true
         const match = await tx
-          .select({ id: GithubRepoAllowlistTable.id })
+          .select()
           .from(GithubRepoAllowlistTable)
           .where(
             and(

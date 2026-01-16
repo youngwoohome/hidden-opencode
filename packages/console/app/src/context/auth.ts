@@ -50,41 +50,22 @@ const authFetch: typeof fetch = async (...args) => {
           }
         : args[1]
     const response = await binding.fetch(new Request(target.toString(), init))
-    return {
-      ok: response.ok,
-      async json() {
-        const text = await response.text()
-        try {
-          return JSON.parse(text)
-        } catch (err) {
-          console.error("Auth fetch returned non-JSON", {
-            url,
-            status: response.status,
-            body: text.slice(0, 500),
-          })
-          throw err
-        }
-      },
+    const clone = response.clone()
+    const text = await clone.text()
+    try {
+      JSON.parse(text)
+    } catch (err) {
+      console.error("Auth fetch returned non-JSON", {
+        url,
+        status: response.status,
+        body: text.slice(0, 500),
+      })
     }
+    return response
   }
-  const response = await fetch(...args)
-  return {
-    ok: response.ok,
-    async json() {
-      const text = await response.text()
-      try {
-        return JSON.parse(text)
-      } catch (err) {
-        console.error("Auth fetch returned non-JSON", {
-          url,
-          status: response.status,
-          body: text.slice(0, 500),
-        })
-        throw err
-      }
-    },
-  }
+  return fetch(...args)
 }
+authFetch.preconnect = fetch.preconnect
 
 export const getAuthClient = () => {
   const issuer = resolveIssuer()

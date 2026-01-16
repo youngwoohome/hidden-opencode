@@ -157,9 +157,6 @@ export function Header(props: { zen?: boolean; hideGetStarted?: boolean }) {
             <a href="/docs">Docs</a>
           </li>
           <li>
-            <A href="/enterprise">Enterprise</A>
-          </li>
-          <li>
             <Switch>
               <Match when={props.zen}>
                 <a href="/auth">Login</a>
@@ -248,9 +245,6 @@ export function Header(props: { zen?: boolean; hideGetStarted?: boolean }) {
                 </li>
                 <li>
                   <a href="/docs">Docs</a>
-                </li>
-                <li>
-                  <A href="/enterprise">Enterprise</A>
                 </li>
                 <li>
                   <Switch>

@@ -33,24 +33,18 @@ if (identifier.startsWith("wrk_")) {
   // Get all workspaces for this account
   const users = await printTable("Workspaces", (tx) =>
     tx
-      .select({
-        userID: UserTable.id,
-        workspaceID: UserTable.workspaceID,
-        workspaceName: WorkspaceTable.name,
-        role: UserTable.role,
-        subscribed: SubscriptionTable.timeCreated,
-      })
+      .select()
       .from(UserTable)
       .rightJoin(WorkspaceTable, eq(WorkspaceTable.id, UserTable.workspaceID))
       .leftJoin(SubscriptionTable, eq(SubscriptionTable.userID, UserTable.id))
       .where(eq(UserTable.accountID, accountID))
       .then((rows) =>
         rows.map((row) => ({
-          userID: row.userID,
-          workspaceID: row.workspaceID,
-          workspaceName: row.workspaceName,
-          role: row.role,
-          subscribed: formatDate(row.subscribed),
+          userID: row.user?.id ?? "",
+          workspaceID: row.workspace.id,
+          workspaceName: row.workspace.name,
+          role: row.user?.role ?? null,
+          subscribed: formatDate(row.subscription?.timeCreated ?? null),
         })),
       ),
   )
@@ -72,33 +66,30 @@ async function printWorkspace(workspaceID: string) {
 
   await printTable("Users", (tx) =>
     tx
-      .select({
-        authEmail: AuthTable.subject,
-        inviteEmail: UserTable.email,
-        role: UserTable.role,
-        timeSeen: UserTable.timeSeen,
-        monthlyLimit: UserTable.monthlyLimit,
-        monthlyUsage: UserTable.monthlyUsage,
-        timeDeleted: UserTable.timeDeleted,
-        fixedUsage: SubscriptionTable.fixedUsage,
-        rollingUsage: SubscriptionTable.rollingUsage,
-        timeFixedUpdated: SubscriptionTable.timeFixedUpdated,
-        timeRollingUpdated: SubscriptionTable.timeRollingUpdated,
-        timeSubscriptionCreated: SubscriptionTable.timeCreated,
-      })
+      .select()
       .from(UserTable)
       .leftJoin(AuthTable, and(eq(UserTable.accountID, AuthTable.accountID), eq(AuthTable.provider, "email")))
       .leftJoin(SubscriptionTable, eq(SubscriptionTable.userID, UserTable.id))
       .where(eq(UserTable.workspaceID, workspace.id))
       .then((rows) =>
         rows.map((row) => {
-          const subStatus = getSubscriptionStatus(row)
+          const subscription = row.subscription
+          const subStatus = getSubscriptionStatus({
+            timeSubscriptionCreated: subscription?.timeCreated ?? null,
+            fixedUsage: subscription?.fixedUsage ?? null,
+            rollingUsage: subscription?.rollingUsage ?? null,
+            timeFixedUpdated: subscription?.timeFixedUpdated ?? null,
+            timeRollingUpdated: subscription?.timeRollingUpdated ?? null,
+          })
+          const user = row.user
+          const authEmail = row.auth?.subject ?? null
+          const inviteEmail = user?.email ?? null
           return {
-            email: (row.timeDeleted ? "❌ " : "") + (row.authEmail ?? row.inviteEmail),
-            role: row.role,
-            timeSeen: formatDate(row.timeSeen),
-            monthly: formatMonthlyUsage(row.monthlyUsage, row.monthlyLimit),
-            subscribed: formatDate(row.timeSubscriptionCreated),
+            email: (user?.timeDeleted ? "❌ " : "") + (authEmail ?? inviteEmail ?? ""),
+            role: user?.role ?? null,
+            timeSeen: formatDate(user?.timeSeen ?? null),
+            monthly: formatMonthlyUsage(user?.monthlyUsage ?? null, user?.monthlyLimit ?? null),
+            subscribed: formatDate(subscription?.timeCreated ?? null),
             subWeekly: subStatus.weekly,
             subRolling: subStatus.rolling,
             rateLimited: subStatus.rateLimited,
@@ -110,43 +101,39 @@ async function printWorkspace(workspaceID: string) {
 
   await printTable("Billing", (tx) =>
     tx
-      .select({
-        balance: BillingTable.balance,
-        customerID: BillingTable.customerID,
-        subscriptionID: BillingTable.subscriptionID,
-        subscriptionCouponID: BillingTable.subscriptionCouponID,
-      })
+      .select()
       .from(BillingTable)
       .where(eq(BillingTable.workspaceID, workspace.id))
       .then(
-        (rows) =>
-          rows.map((row) => ({
-            ...row,
+        (rows) => {
+          const row = rows[0]
+          if (!row) return undefined
+          return {
             balance: `$${(row.balance / 100000000).toFixed(2)}`,
-          }))[0],
+            customerID: row.customerID,
+            subscriptionID: row.subscriptionID,
+            subscriptionCouponID: row.subscriptionCouponID,
+          }
+        },
       ),
   )
 
   await printTable("Payments", (tx) =>
     tx
-      .select({
-        amount: PaymentTable.amount,
-        paymentID: PaymentTable.paymentID,
-        invoiceID: PaymentTable.invoiceID,
-        timeCreated: PaymentTable.timeCreated,
-        timeRefunded: PaymentTable.timeRefunded,
-      })
+      .select()
       .from(PaymentTable)
       .where(eq(PaymentTable.workspaceID, workspace.id))
       .orderBy(sql`${PaymentTable.timeCreated} DESC`)
       .limit(100)
       .then((rows) =>
         rows.map((row) => ({
-          ...row,
           amount: `$${(row.amount / 100000000).toFixed(2)}`,
           paymentID: row.paymentID
             ? `https://dashboard.stripe.com/acct_1RszBH2StuRr0lbX/payments/${row.paymentID}`
             : null,
+          invoiceID: row.invoiceID,
+          timeCreated: row.timeCreated,
+          timeRefunded: row.timeRefunded,
         })),
       ),
   )

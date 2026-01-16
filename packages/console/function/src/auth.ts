@@ -188,20 +188,18 @@ export default {
 
         // Get account
         const accountID = await (async () => {
-          const matches = await Database.use(async (tx) =>
-            tx
-              .select({
-                provider: AuthTable.provider,
-                accountID: AuthTable.accountID,
-              })
+          const matches = await Database.use(async (tx) => {
+            const rows = await tx
+              .select()
               .from(AuthTable)
               .where(
                 or(
                   and(eq(AuthTable.provider, response.provider), eq(AuthTable.subject, subject)),
                   and(eq(AuthTable.provider, "email"), eq(AuthTable.subject, email)),
                 ),
-              ),
-          )
+              )
+            return rows.map((row) => ({ provider: row.provider, accountID: row.accountID }))
+          })
           const idByProvider = matches.find((x) => x.provider === response.provider)?.accountID
           const idByEmail = matches.find((x) => x.provider === "email")?.accountID
           if (idByProvider && idByEmail) return idByProvider
@@ -244,8 +242,9 @@ export default {
         if (response.provider === "github") {
           const accessToken = response.tokenset.access
           if (typeof accessToken === "string" && accessToken.length > 0) {
-            const scope = typeof response.tokenset.scope === "string" ? response.tokenset.scope : undefined
-            const tokenType = typeof response.tokenset.token_type === "string" ? response.tokenset.token_type : undefined
+            const tokenset = response.tokenset as { scope?: unknown; token_type?: unknown }
+            const scope = typeof tokenset.scope === "string" ? tokenset.scope : undefined
+            const tokenType = typeof tokenset.token_type === "string" ? tokenset.token_type : undefined
             await GithubToken.upsert({ accountID, accessToken, scope, tokenType })
           }
         }
@@ -255,7 +254,7 @@ export default {
           await User.joinInvitedWorkspaces()
           const workspaces = await Database.use((tx) =>
             tx
-              .select({ id: WorkspaceTable.id })
+              .select()
               .from(WorkspaceTable)
               .innerJoin(UserTable, eq(UserTable.workspaceID, WorkspaceTable.id))
               .where(

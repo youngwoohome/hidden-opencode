@@ -157,10 +157,11 @@ export async function POST(input: APIEvent) {
         // look up the user to apply to
         const users = await Database.use((tx) =>
           tx
-            .select({ id: UserTable.id, email: AuthTable.subject })
+            .select()
             .from(UserTable)
             .innerJoin(AuthTable, and(eq(AuthTable.accountID, UserTable.accountID), eq(AuthTable.provider, "email")))
-            .where(and(eq(UserTable.workspaceID, workspaceID), isNull(UserTable.timeDeleted))),
+            .where(and(eq(UserTable.workspaceID, workspaceID), isNull(UserTable.timeDeleted)))
+            .then((rows) => rows.map((row) => ({ id: row.user.id, email: row.auth.subject }))),
         )
         const user = users.find((u) => u.email === customerEmail) ?? users[0]
         if (!user) {
@@ -398,7 +399,7 @@ export async function POST(input: APIEvent) {
 
       const workspaceID = await Database.use((tx) =>
         tx
-          .select({ workspaceID: BillingTable.workspaceID })
+          .select()
           .from(BillingTable)
           .where(eq(BillingTable.subscriptionID, subscriptionID))
           .then((rows) => rows[0]?.workspaceID),
@@ -446,7 +447,7 @@ export async function POST(input: APIEvent) {
 
         const workspaceID = await Database.use((tx) =>
           tx
-            .select({ workspaceID: BillingTable.workspaceID })
+            .select()
             .from(BillingTable)
             .where(eq(BillingTable.customerID, customerID))
             .then((rows) => rows[0]?.workspaceID),
@@ -477,9 +478,7 @@ export async function POST(input: APIEvent) {
 
       const workspaceID = await Database.use((tx) =>
         tx
-          .select({
-            workspaceID: BillingTable.workspaceID,
-          })
+          .select()
           .from(BillingTable)
           .where(eq(BillingTable.customerID, customerID))
           .then((rows) => rows[0]?.workspaceID),
@@ -488,9 +487,7 @@ export async function POST(input: APIEvent) {
 
       const amount = await Database.use((tx) =>
         tx
-          .select({
-            amount: PaymentTable.amount,
-          })
+          .select()
           .from(PaymentTable)
           .where(and(eq(PaymentTable.paymentID, paymentIntentID), eq(PaymentTable.workspaceID, workspaceID)))
           .then((rows) => rows[0]?.amount),

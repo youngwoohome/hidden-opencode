@@ -1,8 +1,7 @@
 import { domain } from "./stage"
-import { ADMIN_SECRET, EMAILOCTOPUS_API_KEY } from "./secrets"
+import { ADMIN_SECRET } from "./secrets"
 
 const disableCustomDomain = process.env.OPENCODE_DISABLE_CUSTOM_DOMAIN === "1"
-const disableEmail = process.env.OPENCODE_DISABLE_EMAIL === "1"
 const disableZen = process.env.OPENCODE_DISABLE_ZEN === "1"
 
 ////////////////
@@ -117,9 +116,6 @@ const gatewayKv = new sst.cloudflare.Kv("GatewayKv")
 const bucket = new sst.cloudflare.Bucket("ZenData")
 const bucketNew = new sst.cloudflare.Bucket("ZenDataNew")
 
-const AWS_SES_ACCESS_KEY_ID = disableEmail ? undefined : new sst.Secret("AWS_SES_ACCESS_KEY_ID")
-const AWS_SES_SECRET_ACCESS_KEY = disableEmail ? undefined : new sst.Secret("AWS_SES_SECRET_ACCESS_KEY")
-
 let logProcessor
 if ($app.stage === "production" || $app.stage === "frank") {
   const HONEYCOMB_API_KEY = new sst.Secret("HONEYCOMB_API_KEY")
@@ -139,11 +135,7 @@ new sst.cloudflare.x.SolidStart("Console", {
     auth,
     AUTH_API_URL,
     ...(STRIPE_WEBHOOK_SECRET && STRIPE_SECRET_KEY ? [STRIPE_WEBHOOK_SECRET, STRIPE_SECRET_KEY] : []),
-    ...(EMAILOCTOPUS_API_KEY ? [EMAILOCTOPUS_API_KEY] : []),
     ADMIN_SECRET,
-    ...(AWS_SES_ACCESS_KEY_ID && AWS_SES_SECRET_ACCESS_KEY
-      ? [AWS_SES_ACCESS_KEY_ID, AWS_SES_SECRET_ACCESS_KEY]
-      : []),
     ...(ZEN_BLACK ? [ZEN_BLACK] : []),
     ...ZEN_MODELS,
     ...($dev

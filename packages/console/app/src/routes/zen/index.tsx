@@ -12,7 +12,6 @@ import avatarJay from "../../asset/lander/avatar-jay.png"
 import avatarFrank from "../../asset/lander/avatar-frank.png"
 import avatarAdam from "../../asset/lander/avatar-adam.png"
 import avatarDavid from "../../asset/lander/avatar-david.png"
-import { EmailSignup } from "~/component/email-signup"
 import { Faq } from "~/component/faq"
 import { Legal } from "~/component/legal"
 import { Footer } from "~/component/footer"
@@ -330,8 +329,6 @@ export default function Home() {
               </li>
             </ul>
           </section>
-
-          <EmailSignup />
 
           <Footer />
         </div>

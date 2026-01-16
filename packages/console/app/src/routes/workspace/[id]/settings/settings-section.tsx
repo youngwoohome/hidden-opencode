@@ -13,11 +13,7 @@ const getWorkspaceInfo = query(async (workspaceID: string) => {
     () =>
       Database.use((tx) =>
         tx
-          .select({
-            id: WorkspaceTable.id,
-            name: WorkspaceTable.name,
-            slug: WorkspaceTable.slug,
-          })
+          .select()
           .from(WorkspaceTable)
           .where(eq(WorkspaceTable.id, workspaceID))
           .then((rows) => rows[0] || null),

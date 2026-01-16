@@ -25,25 +25,29 @@ export namespace Billing {
   export const get = async () => {
     return Database.use(async (tx) =>
       tx
-        .select({
-          customerID: BillingTable.customerID,
-          subscriptionID: BillingTable.subscriptionID,
-          paymentMethodID: BillingTable.paymentMethodID,
-          paymentMethodType: BillingTable.paymentMethodType,
-          paymentMethodLast4: BillingTable.paymentMethodLast4,
-          balance: BillingTable.balance,
-          reload: BillingTable.reload,
-          reloadAmount: BillingTable.reloadAmount,
-          reloadTrigger: BillingTable.reloadTrigger,
-          monthlyLimit: BillingTable.monthlyLimit,
-          monthlyUsage: BillingTable.monthlyUsage,
-          timeMonthlyUsageUpdated: BillingTable.timeMonthlyUsageUpdated,
-          reloadError: BillingTable.reloadError,
-          timeReloadError: BillingTable.timeReloadError,
-        })
+        .select()
         .from(BillingTable)
         .where(eq(BillingTable.workspaceID, Actor.workspace()))
-        .then((r) => r[0]),
+        .then((rows) => {
+          const row = rows[0]
+          if (!row) return undefined
+          return {
+            customerID: row.customerID,
+            subscriptionID: row.subscriptionID,
+            paymentMethodID: row.paymentMethodID,
+            paymentMethodType: row.paymentMethodType,
+            paymentMethodLast4: row.paymentMethodLast4,
+            balance: row.balance,
+            reload: row.reload,
+            reloadAmount: row.reloadAmount,
+            reloadTrigger: row.reloadTrigger,
+            monthlyLimit: row.monthlyLimit,
+            monthlyUsage: row.monthlyUsage,
+            timeMonthlyUsageUpdated: row.timeMonthlyUsageUpdated,
+            reloadError: row.reloadError,
+            timeReloadError: row.timeReloadError,
+          }
+        }),
     )
   }
 
@@ -80,15 +84,12 @@ export namespace Billing {
   export const reload = async () => {
     const billing = await Database.use((tx) =>
       tx
-        .select({
-          customerID: BillingTable.customerID,
-          paymentMethodID: BillingTable.paymentMethodID,
-          reloadAmount: BillingTable.reloadAmount,
-        })
+        .select()
         .from(BillingTable)
         .where(eq(BillingTable.workspaceID, Actor.workspace()))
         .then((rows) => rows[0]),
     )
+    if (!billing) throw new Error("Billing record not found")
     const customerID = billing.customerID
     const paymentMethodID = billing.paymentMethodID
     const amountInCents = (billing.reloadAmount ?? Billing.RELOAD_AMOUNT) * 100
@@ -206,7 +207,7 @@ export namespace Billing {
 
       const email = await User.getAuthEmail(user.properties.userID)
       const customer = await Billing.get()
-      const amountInCents = (amount ?? customer.reloadAmount ?? Billing.RELOAD_AMOUNT) * 100
+      const amountInCents = (amount ?? customer?.reloadAmount ?? Billing.RELOAD_AMOUNT) * 100
       const session = await Billing.stripe().checkout.sessions.create({
         mode: "payment",
         billing_address_collection: "required",
@@ -228,7 +229,7 @@ export namespace Billing {
             quantity: 1,
           },
         ],
-        ...(customer.customerID
+        ...(customer?.customerID
           ? {
               customer: customer.customerID,
               customer_update: {

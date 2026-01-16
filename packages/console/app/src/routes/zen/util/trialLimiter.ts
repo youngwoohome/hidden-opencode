@@ -18,9 +18,7 @@ export function createTrialLimiter(trial: ZenData.Trial | undefined, ip: string,
     isTrial: async () => {
       const data = await Database.use((tx) =>
         tx
-          .select({
-            usage: IpTable.usage,
-          })
+          .select()
           .from(IpTable)
           .where(eq(IpTable.ip, ip))
           .then((rows) => rows[0]),

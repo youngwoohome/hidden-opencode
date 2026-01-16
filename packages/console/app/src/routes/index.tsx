@@ -5,7 +5,6 @@ import video from "../asset/lander/opencode-min.mp4"
 import videoPoster from "../asset/lander/opencode-poster.png"
 import { IconCopy, IconCheck } from "../component/icon"
 import { A, createAsync } from "@solidjs/router"
-import { EmailSignup } from "~/component/email-signup"
 import { Tabs } from "@kobalte/core/tabs"
 import { Faq } from "~/component/faq"
 import { Header } from "~/component/header"
@@ -649,7 +648,7 @@ export default function Home() {
 
                 <p>
                   OpenCode does not store any of your code or context data, so that it can operate in privacy sensitive
-                  environments. Learn more about <a href="/docs/enterprise/ ">privacy</a>.
+                  environments.
                 </p>
               </div>
             </div>
@@ -827,8 +826,6 @@ export default function Home() {
               </A>
             </div>
           </section>
-
-          <EmailSignup />
 
           <Footer />
         </div>

@@ -14,10 +14,7 @@ console.log(`Removing subscription from workspace ${workspaceID}`)
 // Look up the workspace billing
 const billing = await Database.use((tx) =>
   tx
-    .select({
-      customerID: BillingTable.customerID,
-      subscriptionID: BillingTable.subscriptionID,
-    })
+    .select()
     .from(BillingTable)
     .where(eq(BillingTable.workspaceID, workspaceID))
     .then((rows) => rows[0]),

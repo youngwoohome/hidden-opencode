@@ -16,11 +16,7 @@ const getWorkspaces = query(async () => {
   return withActor(async () => {
     return Database.use((tx) =>
       tx
-        .select({
-          id: WorkspaceTable.id,
-          name: WorkspaceTable.name,
-          slug: WorkspaceTable.slug,
-        })
+        .select()
         .from(UserTable)
         .innerJoin(WorkspaceTable, eq(UserTable.workspaceID, WorkspaceTable.id))
         .where(
@@ -29,6 +25,13 @@ const getWorkspaces = query(async () => {
             isNull(WorkspaceTable.timeDeleted),
             isNull(UserTable.timeDeleted),
           ),
+        )
+        .then((rows) =>
+          rows.map((row) => ({
+            id: row.workspace.id,
+            name: row.workspace.name,
+            slug: row.workspace.slug,
+          })),
         ),
     )
   })

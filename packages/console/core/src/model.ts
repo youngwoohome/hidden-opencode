@@ -117,7 +117,7 @@ export namespace Model {
   export const listDisabled = fn(z.void(), () => {
     return Database.use((db) =>
       db
-        .select({ model: ModelTable.model })
+        .select()
         .from(ModelTable)
         .where(eq(ModelTable.workspaceID, Actor.workspace()))
         .then((rows) => rows.map((row) => row.model)),

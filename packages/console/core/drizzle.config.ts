@@ -3,9 +3,13 @@ import { defineConfig } from "drizzle-kit"
 
 const accountId = process.env.CLOUDFLARE_ACCOUNT_ID ?? process.env.CLOUDFLARE_DEFAULT_ACCOUNT_ID
 const token = process.env.CLOUDFLARE_API_TOKEN
+const databaseId =
+  process.env.CLOUDFLARE_DATABASE_ID ?? (Resource.Database as { databaseId?: string }).databaseId
 
-if (!accountId || !token) {
-  throw new Error("CLOUDFLARE_ACCOUNT_ID (or CLOUDFLARE_DEFAULT_ACCOUNT_ID) and CLOUDFLARE_API_TOKEN are required")
+if (!accountId || !token || !databaseId) {
+  throw new Error(
+    "CLOUDFLARE_ACCOUNT_ID (or CLOUDFLARE_DEFAULT_ACCOUNT_ID), CLOUDFLARE_API_TOKEN, and CLOUDFLARE_DATABASE_ID are required",
+  )
 }
 
 export default defineConfig({
@@ -15,9 +19,8 @@ export default defineConfig({
   verbose: true,
   dialect: "sqlite",
   dbCredentials: {
-    driver: "d1-http",
     accountId,
-    databaseId: Resource.Database.databaseId,
+    databaseId,
     token,
   },
 })

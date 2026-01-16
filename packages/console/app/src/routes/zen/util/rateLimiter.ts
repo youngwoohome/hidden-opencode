@@ -25,11 +25,11 @@ export function createRateLimiter(limit: number | undefined, rawIp: string) {
     check: async () => {
       const rows = await Database.use((tx) =>
         tx
-          .select({ count: IpRateLimitTable.count })
+          .select()
           .from(IpRateLimitTable)
           .where(and(eq(IpRateLimitTable.ip, ip), inArray(IpRateLimitTable.interval, intervals))),
       )
-      const total = rows.reduce((sum, r) => sum + r.count, 0)
+      const total = rows.reduce((sum, row) => sum + row.count, 0)
       logger.debug(`rate limit total: ${total}`)
       if (total >= limit) throw new RateLimitError(`Rate limit exceeded. Please try again later.`)
     },

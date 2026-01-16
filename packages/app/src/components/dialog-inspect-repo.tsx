@@ -75,7 +75,7 @@ export function DialogInspectRepo() {
                         variant="ghost"
                         size="small"
                         icon="circle-x"
-                        onClick={(event) => {
+                        onClick={(event: MouseEvent) => {
                           event.stopPropagation()
                           inspectRepo.removeRepo(repo.id)
                         }}

@@ -1,15 +1,12 @@
 import { z } from "zod"
-import { and, eq, getTableColumns, isNull } from "drizzle-orm"
+import { and, eq, isNull } from "drizzle-orm"
 import { fn } from "./util/fn"
 import { Database } from "./drizzle"
 import { UserRole, UserTable } from "./schema/user.sql"
 import { Actor } from "./actor"
 import { Identifier } from "./identifier"
-import { render } from "@jsx-email/render"
-import { AWS } from "./aws"
 import { Key } from "./key"
 import { KeyTable } from "./schema/key.sql"
-import { WorkspaceTable } from "./schema/workspace.sql"
 import { AuthTable } from "./schema/auth.sql"
 
 export namespace User {
@@ -19,16 +16,18 @@ export namespace User {
   }
 
   export const list = fn(z.void(), () =>
-    Database.use((tx) =>
-      tx
-        .select({
-          ...getTableColumns(UserTable),
-          authEmail: AuthTable.subject,
-        })
+    Database.use(async (tx) => {
+      const rows = await tx
+        .select()
         .from(UserTable)
         .leftJoin(AuthTable, and(eq(UserTable.accountID, AuthTable.accountID), eq(AuthTable.provider, "email")))
-        .where(and(eq(UserTable.workspaceID, Actor.workspace()), isNull(UserTable.timeDeleted))),
-    ),
+        .where(and(eq(UserTable.workspaceID, Actor.workspace()), isNull(UserTable.timeDeleted)))
+
+      return rows.map((row) => ({
+        ...row.user,
+        authEmail: row.auth?.subject ?? null,
+      }))
+    }),
   )
 
   export const fromID = fn(z.string(), (id) =>
@@ -44,13 +43,11 @@ export namespace User {
   export const getAuthEmail = fn(z.string(), (id) =>
     Database.use((tx) =>
       tx
-        .select({
-          email: AuthTable.subject,
-        })
+        .select()
         .from(UserTable)
         .leftJoin(AuthTable, and(eq(UserTable.accountID, AuthTable.accountID), eq(AuthTable.provider, "email")))
         .where(and(eq(UserTable.workspaceID, Actor.workspace()), eq(UserTable.id, id)))
-        .then((rows) => rows[0]?.email),
+        .then((rows) => rows[0]?.auth?.subject),
     ),
   )
 
@@ -67,9 +64,7 @@ export namespace User {
       // create user
       const accountID = await Database.use((tx) =>
         tx
-          .select({
-            accountID: AuthTable.accountID,
-          })
+          .select()
           .from(AuthTable)
           .where(and(eq(AuthTable.provider, "email"), eq(AuthTable.subject, email)))
           .then((rows) => rows[0]?.accountID),
@@ -126,40 +121,7 @@ export namespace User {
         })
       }
 
-      // send email, ignore errors
-      try {
-        const emailInfo = await Database.use((tx) =>
-          tx
-            .select({
-              inviterEmail: AuthTable.subject,
-              workspaceName: WorkspaceTable.name,
-            })
-            .from(UserTable)
-            .innerJoin(AuthTable, and(eq(UserTable.accountID, AuthTable.accountID), eq(AuthTable.provider, "email")))
-            .innerJoin(WorkspaceTable, eq(WorkspaceTable.id, workspaceID))
-            .where(
-              and(eq(UserTable.workspaceID, workspaceID), eq(UserTable.id, Actor.assert("user").properties.userID)),
-            )
-            .then((rows) => rows[0]),
-        )
-
-        const { InviteEmail } = await import("@opencode-ai/console-mail/InviteEmail.jsx")
-        await AWS.sendEmail({
-          to: email,
-          subject: `You've been invited to join the ${emailInfo.workspaceName} workspace on OpenCode`,
-          body: render(
-            // @ts-ignore
-            InviteEmail({
-              inviter: emailInfo.inviterEmail,
-              assetsUrl: `https://opencode.ai/email`,
-              workspaceID: workspaceID,
-              workspaceName: emailInfo.workspaceName,
-            }),
-          ),
-        })
-      } catch (e) {
-        console.error(e)
-      }
+      // NOTE: Marketing/transactional email delivery intentionally disabled.
     },
   )
 
@@ -167,12 +129,10 @@ export namespace User {
     const account = Actor.assert("account")
     const invitations = await Database.use(async (tx) => {
       const invitations = await tx
-        .select({
-          id: UserTable.id,
-          workspaceID: UserTable.workspaceID,
-        })
+        .select()
         .from(UserTable)
         .where(eq(UserTable.email, account.properties.email))
+        .then((rows) => rows.map((row) => ({ id: row.id, workspaceID: row.workspaceID })))
 
       await tx
         .update(UserTable)
