@@ -595,6 +595,12 @@ export function SessionTurn(
                             cacheKey={responsePartId()}
                           />
                         </div>
+                        <Show when={(msg().summary?.diffs?.length ?? 0) > 0}>
+                          <div data-slot="session-turn-changes-title">
+                            Files changed
+                            <span data-slot="session-turn-changes-count">{msg().summary?.diffs?.length ?? 0}</span>
+                          </div>
+                        </Show>
                         <Accordion
                           data-slot="session-turn-accordion"
                           multiple

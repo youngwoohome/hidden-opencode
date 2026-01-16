@@ -42,7 +42,10 @@ export function createTrialLimiter(trial: ZenData.Trial | undefined, ip: string,
         tx
           .insert(IpTable)
           .values({ ip, usage })
-          .onDuplicateKeyUpdate({ set: { usage: sql`${IpTable.usage} + ${usage}` } }),
+          .onConflictDoUpdate({
+            target: [IpTable.ip],
+            set: { usage: sql`${IpTable.usage} + ${usage}` },
+          }),
       )
     },
   }

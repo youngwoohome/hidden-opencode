@@ -779,6 +779,7 @@ export namespace Server {
           ),
           async (c) => {
             const query = c.req.valid("query")
+            await Session.pruneInactive()
             const term = query.search?.toLowerCase()
             const sessions: Session.Info[] = []
             for await (const session of Session.list()) {

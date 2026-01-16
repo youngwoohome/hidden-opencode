@@ -1,29 +1,22 @@
-import { drizzle } from "drizzle-orm/planetscale-serverless"
+import { drizzle } from "drizzle-orm/d1"
 import { Resource } from "@opencode-ai/console-resource"
 export * from "drizzle-orm"
-import { Client } from "@planetscale/database"
 
-import { MySqlTransaction, type MySqlTransactionConfig } from "drizzle-orm/mysql-core"
+import { SQLiteTransaction, type SQLiteTransactionConfig } from "drizzle-orm/sqlite-core"
 import type { ExtractTablesWithRelations } from "drizzle-orm"
-import type { PlanetScalePreparedQueryHKT, PlanetscaleQueryResultHKT } from "drizzle-orm/planetscale-serverless"
 import { Context } from "../context"
 import { memo } from "../util/memo"
 
 export namespace Database {
-  export type Transaction = MySqlTransaction<
-    PlanetscaleQueryResultHKT,
-    PlanetScalePreparedQueryHKT,
+  export type Transaction = SQLiteTransaction<
+    "async",
+    unknown,
     Record<string, never>,
     ExtractTablesWithRelations<Record<string, never>>
   >
 
   const client = memo(() => {
-    const result = new Client({
-      host: Resource.Database.host,
-      username: Resource.Database.username,
-      password: Resource.Database.password,
-    })
-    const db = drizzle(result, {})
+    const db = drizzle(Resource.Database, {})
     return db
   })
 
@@ -33,11 +26,12 @@ export namespace Database {
     tx: TxOrDb
     effects: (() => void | Promise<void>)[]
   }>()
+  const supportsSqlTransactions = false // D1 rejects BEGIN/SAVEPOINT; keep operations non-transactional.
 
   export async function use<T>(callback: (trx: TxOrDb) => Promise<T>) {
     try {
       const { tx } = TransactionContext.use()
-      return tx.transaction(callback)
+      return supportsSqlTransactions ? tx.transaction(callback) : callback(tx)
     } catch (err) {
       if (err instanceof Context.NotFound) {
         const effects: (() => void | Promise<void>)[] = []
@@ -67,16 +61,18 @@ export namespace Database {
     }
   }
 
-  export async function transaction<T>(callback: (tx: TxOrDb) => Promise<T>, config?: MySqlTransactionConfig) {
+  export async function transaction<T>(callback: (tx: TxOrDb) => Promise<T>, config?: SQLiteTransactionConfig) {
     try {
       const { tx } = TransactionContext.use()
       return callback(tx)
     } catch (err) {
       if (err instanceof Context.NotFound) {
         const effects: (() => void | Promise<void>)[] = []
-        const result = await client().transaction(async (tx) => {
-          return TransactionContext.provide({ tx, effects }, () => callback(tx))
-        }, config)
+        const result = supportsSqlTransactions
+          ? await client().transaction(async (tx) => {
+              return TransactionContext.provide({ tx, effects }, () => callback(tx))
+            }, config)
+          : await TransactionContext.provide({ tx: client(), effects }, () => callback(client()))
         await Promise.all(effects.map((x) => x()))
         return result
       }

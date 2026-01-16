@@ -131,7 +131,7 @@ export namespace Billing {
           .update(BillingTable)
           .set({
             reloadError: e.message ?? "Payment failed.",
-            timeReloadError: sql`now()`,
+            timeReloadError: new Date(),
           })
           .where(eq(BillingTable.workspaceID, Actor.workspace())),
       )

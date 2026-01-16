@@ -2,22 +2,29 @@
 
 export default $config({
   app(input) {
+    const stripeKey = process.env.STRIPE_SECRET_KEY
     return {
       name: "opencode",
       removal: input?.stage === "production" ? "retain" : "remove",
       protect: ["production"].includes(input?.stage),
       home: "cloudflare",
       providers: {
-        stripe: {
-          apiKey: process.env.STRIPE_SECRET_KEY!,
-        },
-        planetscale: "0.4.1",
+        ...(stripeKey ? { stripe: { apiKey: stripeKey } } : {}),
       },
     }
   },
   async run() {
-    await import("./infra/app.js")
-    await import("./infra/console.js")
-    await import("./infra/enterprise.js")
+    const minimal = process.env.OPENCODE_MINIMAL === "1"
+    const disableEnterprise = process.env.OPENCODE_DISABLE_ENTERPRISE === "1"
+    const consoleOnly = process.env.OPENCODE_CONSOLE_ONLY === "1"
+    if (!consoleOnly) {
+      await import("./infra/app.js")
+    }
+    if (!minimal || consoleOnly) {
+      await import("./infra/console.js")
+      if (!disableEnterprise && !consoleOnly) {
+        await import("./infra/enterprise.js")
+      }
+    }
   },
 })

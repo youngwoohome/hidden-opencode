@@ -11,6 +11,8 @@ export namespace Identifier {
     model: "mod",
     payment: "pay",
     provider: "prv",
+    githubToken: "ght",
+    githubRepoAllowlist: "grl",
     subscription: "sub",
     usage: "usg",
     user: "usr",

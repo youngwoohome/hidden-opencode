@@ -16,12 +16,14 @@ import { SessionPrompt } from "./prompt"
 import { fn } from "@/util/fn"
 import { Command } from "../command"
 import { Snapshot } from "@/snapshot"
+import { SessionStatus } from "./status"
 
 import type { Provider } from "@/provider/provider"
 import { PermissionNext } from "@/permission/next"
 
 export namespace Session {
   const log = Log.create({ service: "session" })
+  const INACTIVE_DAYS_DEFAULT = 7
 
   const parentTitlePrefix = "New session - "
   const childTitlePrefix = "Child session - "
@@ -302,6 +304,36 @@ export namespace Session {
     const project = Instance.project
     for (const item of await Storage.list(["session", project.id])) {
       yield Storage.read<Info>(item)
+    }
+  }
+
+  function parseInactiveDays() {
+    const raw = process.env.OPENCODE_SESSION_INACTIVE_DAYS
+    if (!raw) return INACTIVE_DAYS_DEFAULT
+    const value = Number(raw)
+    if (!Number.isFinite(value) || value <= 0) return INACTIVE_DAYS_DEFAULT
+    return Math.floor(value)
+  }
+
+  export async function pruneInactive() {
+    const days = parseInactiveDays()
+    if (!days) return
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
+    const project = Instance.project
+    let removed = 0
+    const items = await Storage.list(["session", project.id])
+    for (const item of items) {
+      const session = await Storage.readOptional<Info>(item)
+      if (!session) continue
+      const archivedAt = session.time?.archived
+      if (!archivedAt || archivedAt >= cutoff) continue
+      const status = SessionStatus.get(session.id)
+      if (status.type === "busy") continue
+      await remove(session.id)
+      removed += 1
+    }
+    if (removed > 0) {
+      log.info("pruned inactive sessions", { removed, cutoff, projectID: project.id })
     }
   }
 

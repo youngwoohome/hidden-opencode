@@ -1019,7 +1019,7 @@ export default function Page() {
   })
 
   return (
-    <div class="relative bg-background-base size-full overflow-hidden flex flex-col">
+    <div class="inspect-session relative bg-background-base size-full overflow-hidden flex flex-col">
       <SessionHeader />
       <div class="flex-1 min-h-0 flex flex-col md:flex-row">
         {/* Mobile tab bar - only shown on mobile when there are diffs */}
@@ -1111,7 +1111,7 @@ export default function Page() {
                       >
                         <div
                           ref={autoScroll.contentRef}
-                          class="flex flex-col gap-32 items-start justify-start pb-[calc(var(--prompt-height,8rem)+64px)] md:pb-[calc(var(--prompt-height,10rem)+64px)] transition-[margin]"
+                          class="inspect-turn-list flex flex-col gap-32 items-start justify-start pb-[calc(var(--prompt-height,8rem)+64px)] md:pb-[calc(var(--prompt-height,10rem)+64px)] transition-[margin]"
                           classList={{
                             "mt-0.5": !showTabs(),
                             "mt-0": showTabs(),
@@ -1178,11 +1178,11 @@ export default function Page() {
                                       setStore("expanded", message.id, (open: boolean | undefined) => !open)
                                     }
                                     classes={{
-                                      root: "min-w-0 w-full relative",
+                                      root: "inspect-turn min-w-0 w-full relative",
                                       content:
                                         "flex flex-col justify-between !overflow-visible [&_[data-slot=session-turn-message-header]]:top-[-32px]",
                                       container:
-                                        "px-4 md:px-6 " +
+                                        "inspect-turn-card px-4 md:px-6 " +
                                         (!showTabs()
                                           ? "md:max-w-200 md:mx-auto"
                                           : visibleUserMessages().length > 1
@@ -1225,7 +1225,7 @@ export default function Page() {
           {/* Prompt input */}
           <div
             ref={(el) => (promptDock = el)}
-            class="absolute inset-x-0 bottom-0 pt-12 pb-4 md:pb-8 flex flex-col justify-center items-center z-50 px-4 md:px-0 bg-gradient-to-t from-background-stronger via-background-stronger to-transparent pointer-events-none"
+            class="inspect-prompt-dock absolute inset-x-0 bottom-0 pt-12 pb-4 md:pb-8 flex flex-col justify-center items-center z-50 px-4 md:px-0 bg-gradient-to-t from-background-stronger via-background-stronger to-transparent pointer-events-none"
           >
             <div
               classList={{

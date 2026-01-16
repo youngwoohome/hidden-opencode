@@ -1,0 +1,64 @@
+name: opencode-custom-image
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "GHCR image name (optional)"
+        required: false
+        type: string
+      tag:
+        description: "Image tag"
+        required: false
+        default: "dev"
+        type: string
+      platform:
+        description: "Docker platform"
+        required: false
+        default: "linux/amd64"
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-bun
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build opencode binary
+        run: bun --cwd packages/opencode ./script/build.ts --single
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        env:
+          IMAGE_NAME: ${{ inputs.image }}
+          IMAGE_TAG: ${{ inputs.tag }}
+          PLATFORM: ${{ inputs.platform }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          IMAGE="${IMAGE_NAME:-ghcr.io/${REPO_OWNER}/opencode-custom}"
+          TAG="${IMAGE_TAG:-dev}"
+          docker buildx build \
+            --platform "$PLATFORM" \
+            -f packages/opencode/Dockerfile.modal \
+            --build-arg OPENCODE_BIN=dist/opencode-linux-x64/bin/opencode \
+            -t "${IMAGE}:${TAG}" \
+            --push \
+            packages/opencode

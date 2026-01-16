@@ -145,3 +145,4 @@ Remember that todo lists must always be written in markdown format and must alwa
 If the user tells you to stage and commit, you may do so. 
 
 You are NEVER allowed to stage and commit files automatically.
+If you are going to push or open a PR, create a new branch (e.g. `opencode/<short-task>`) unless the user explicitly asks you to use an existing branch.

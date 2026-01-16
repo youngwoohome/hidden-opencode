@@ -102,11 +102,15 @@ import type {
   SessionDeleteResponses,
   SessionDiffErrors,
   SessionDiffResponses,
+  SessionEventsErrors,
+  SessionEventsResponses,
   SessionForkResponses,
   SessionGetErrors,
   SessionGetResponses,
   SessionInitErrors,
   SessionInitResponses,
+  SessionJoinErrors,
+  SessionJoinResponses,
   SessionListResponses,
   SessionMessageErrors,
   SessionMessageResponses,
@@ -122,12 +126,18 @@ import type {
   SessionShareResponses,
   SessionShellErrors,
   SessionShellResponses,
+  SessionSpawnErrors,
+  SessionSpawnResponses,
   SessionStatusErrors,
   SessionStatusResponses,
   SessionSummarizeErrors,
   SessionSummarizeResponses,
   SessionTodoErrors,
   SessionTodoResponses,
+  SessionUiSnapshotCompareErrors,
+  SessionUiSnapshotCompareResponses,
+  SessionUiSnapshotCreateErrors,
+  SessionUiSnapshotCreateResponses,
   SessionUnrevertErrors,
   SessionUnrevertResponses,
   SessionUnshareErrors,
@@ -162,6 +172,9 @@ import type {
   WorktreeCreateInput,
   WorktreeCreateResponses,
   WorktreeListResponses,
+  WorktreeRemoveErrors,
+  WorktreeRemoveInput,
+  WorktreeRemoveResponses,
 } from "./types.gen.js"
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<
@@ -697,6 +710,41 @@ export class Path extends HeyApiClient {
 
 export class Worktree extends HeyApiClient {
   /**
+   * Remove worktree
+   *
+   * Remove a git worktree that was created for the current project.
+   */
+  public remove<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      worktreeRemoveInput?: WorktreeRemoveInput
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { key: "worktreeRemoveInput", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<WorktreeRemoveResponses, WorktreeRemoveErrors, ThrowOnError>({
+      url: "/experimental/worktree",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
    * List worktrees
    *
    * List all sandbox worktrees for the current project.
@@ -772,6 +820,104 @@ export class Vcs extends HeyApiClient {
   }
 }
 
+export class Snapshot extends HeyApiClient {
+  /**
+   * Create UI DOM snapshot
+   *
+   * Fetch a URL and store an HTML snapshot for later comparison.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      url?: string
+      headers?: {
+        [key: string]: string
+      }
+      maxHtml?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "body", key: "url" },
+            { in: "body", key: "headers" },
+            { in: "body", key: "maxHtml" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionUiSnapshotCreateResponses,
+      SessionUiSnapshotCreateErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/ui/snapshot",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Compare UI DOM snapshots
+   *
+   * Compare two stored HTML snapshots and return a diff summary.
+   */
+  public compare<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      beforeID?: string
+      afterID?: string
+      context?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "body", key: "beforeID" },
+            { in: "body", key: "afterID" },
+            { in: "body", key: "context" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionUiSnapshotCompareResponses,
+      SessionUiSnapshotCompareErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/ui/snapshot/compare",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Ui extends HeyApiClient {
+  snapshot = new Snapshot({ client: this.client })
+}
+
 export class Session extends HeyApiClient {
   /**
    * List sessions
@@ -818,6 +964,7 @@ export class Session extends HeyApiClient {
       parentID?: string
       title?: string
       permission?: PermissionRuleset
+      createdBy?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -830,6 +977,7 @@ export class Session extends HeyApiClient {
             { in: "body", key: "parentID" },
             { in: "body", key: "title" },
             { in: "body", key: "permission" },
+            { in: "body", key: "createdBy" },
           ],
         },
       ],
@@ -956,6 +1104,124 @@ export class Session extends HeyApiClient {
     )
     return (options?.client ?? this.client).patch<SessionUpdateResponses, SessionUpdateErrors, ThrowOnError>({
       url: "/session/{sessionID}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Get session events
+   *
+   * Retrieve structured session event logs (tool runs, errors, etc.) for observability.
+   */
+  public events<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      limit?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionEventsResponses, SessionEventsErrors, ThrowOnError>({
+      url: "/session/{sessionID}/event",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Spawn child session
+   *
+   * Create a child session with parentID set to the provided session.
+   */
+  public spawn<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      query_directory?: string
+      title?: string
+      body_directory?: string
+      useWorktree?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "body", key: "title" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+            { in: "body", key: "useWorktree" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionSpawnResponses, SessionSpawnErrors, ThrowOnError>({
+      url: "/session/{sessionID}/spawn",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Join child session
+   *
+   * Summarize a child session and append a synthetic summary message to the parent session. Also records spawn/join events.
+   */
+  public join<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      childSessionID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "body", key: "childSessionID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionJoinResponses, SessionJoinErrors, ThrowOnError>({
+      url: "/session/{sessionID}/join",
       ...options,
       ...params,
       headers: {
@@ -1611,6 +1877,8 @@ export class Session extends HeyApiClient {
       ...params,
     })
   }
+
+  ui = new Ui({ client: this.client })
 }
 
 export class Part extends HeyApiClient {

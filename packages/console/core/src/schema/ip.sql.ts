@@ -1,22 +1,22 @@
-import { mysqlTable, int, primaryKey, varchar } from "drizzle-orm/mysql-core"
+import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { timestamps } from "../drizzle/types"
 
-export const IpTable = mysqlTable(
+export const IpTable = sqliteTable(
   "ip",
   {
-    ip: varchar("ip", { length: 45 }).notNull(),
+    ip: text("ip", { length: 45 }).notNull(),
     ...timestamps,
-    usage: int("usage"),
+    usage: integer("usage"),
   },
   (table) => [primaryKey({ columns: [table.ip] })],
 )
 
-export const IpRateLimitTable = mysqlTable(
+export const IpRateLimitTable = sqliteTable(
   "ip_rate_limit",
   {
-    ip: varchar("ip", { length: 45 }).notNull(),
-    interval: varchar("interval", { length: 10 }).notNull(),
-    count: int("count").notNull(),
+    ip: text("ip", { length: 45 }).notNull(),
+    interval: text("interval", { length: 10 }).notNull(),
+    count: integer("count").notNull(),
   },
   (table) => [primaryKey({ columns: [table.ip, table.interval] })],
 )

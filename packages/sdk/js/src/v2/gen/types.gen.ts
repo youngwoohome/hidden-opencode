@@ -708,6 +708,7 @@ export type Session = {
   id: string
   projectID: string
   directory: string
+  createdBy?: string
   parentID?: string
   summary?: {
     additions: number
@@ -1786,8 +1787,136 @@ export type WorktreeCreateInput = {
   startCommand?: string
 }
 
+export type WorktreeRemoveInput = {
+  directory: string
+  branch?: string
+  pruneBranch?: boolean
+}
+
 export type VcsInfo = {
   branch: string
+}
+
+export type SessionToolEvent = {
+  type: "tool"
+  id: string
+  sessionID: string
+  messageID: string
+  partID: string
+  callID: string
+  tool: string
+  status: "running" | "completed" | "error"
+  time: {
+    created: number
+    start?: number
+    end?: number
+  }
+  title?: string
+  input?: {
+    [key: string]: unknown
+  }
+  output?: string
+  outputTruncated?: boolean
+  outputLength?: number
+  error?: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  attachments?: Array<unknown>
+}
+
+export type SessionPermissionAskedEvent = {
+  type: "permission_asked"
+  id: string
+  sessionID: string
+  time: {
+    created: number
+  }
+  request: PermissionRequest
+}
+
+export type SessionPermissionRepliedEvent = {
+  type: "permission_replied"
+  id: string
+  sessionID: string
+  time: {
+    created: number
+  }
+  requestID: string
+  reply: "once" | "always" | "reject"
+}
+
+export type SessionSyncWaitEvent = {
+  type: "sync_wait"
+  id: string
+  sessionID: string
+  time: {
+    created: number
+    start: number
+    end: number
+  }
+  tool: string
+  lockPath: string
+  waitedMs: number
+  timedOut?: boolean
+}
+
+export type SessionSpawnEvent = {
+  type: "spawn"
+  id: string
+  sessionID: string
+  childSessionID: string
+  time: {
+    created: number
+  }
+  title?: string
+  directory?: string
+}
+
+export type SessionJoinEvent = {
+  type: "join"
+  id: string
+  sessionID: string
+  childSessionID: string
+  time: {
+    created: number
+  }
+  summary: string
+  summaryTruncated?: boolean
+  summaryLength?: number
+}
+
+export type SessionEvent =
+  | SessionToolEvent
+  | SessionPermissionAskedEvent
+  | SessionPermissionRepliedEvent
+  | SessionSyncWaitEvent
+  | SessionSpawnEvent
+  | SessionJoinEvent
+
+export type SessionUiSnapshot = {
+  id: string
+  sessionID: string
+  url: string
+  time: {
+    created: number
+  }
+  html: string
+  htmlTruncated: boolean
+  htmlLength: number
+}
+
+export type SessionUiSnapshotCompare = {
+  changed: boolean
+  additions: number
+  deletions: number
+  diff: string
+}
+
+export type TooManyRequestsError = {
+  name: string
+  message: string
+  data?: unknown
 }
 
 export type TextPartInput = {
@@ -2517,6 +2646,33 @@ export type PathGetResponses = {
 
 export type PathGetResponse = PathGetResponses[keyof PathGetResponses]
 
+export type WorktreeRemoveData = {
+  body?: WorktreeRemoveInput
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/experimental/worktree"
+}
+
+export type WorktreeRemoveErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type WorktreeRemoveError = WorktreeRemoveErrors[keyof WorktreeRemoveErrors]
+
+export type WorktreeRemoveResponses = {
+  /**
+   * Worktree removed
+   */
+  200: boolean
+}
+
+export type WorktreeRemoveResponse = WorktreeRemoveResponses[keyof WorktreeRemoveResponses]
+
 export type WorktreeListData = {
   body?: never
   path?: never
@@ -2615,6 +2771,7 @@ export type SessionCreateData = {
     parentID?: string
     title?: string
     permission?: PermissionRuleset
+    createdBy?: string
   }
   path?: never
   query?: {
@@ -2773,6 +2930,194 @@ export type SessionUpdateResponses = {
 }
 
 export type SessionUpdateResponse = SessionUpdateResponses[keyof SessionUpdateResponses]
+
+export type SessionEventsData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    limit?: number
+  }
+  url: "/session/{sessionID}/event"
+}
+
+export type SessionEventsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionEventsError = SessionEventsErrors[keyof SessionEventsErrors]
+
+export type SessionEventsResponses = {
+  /**
+   * List of events
+   */
+  200: Array<SessionEvent>
+}
+
+export type SessionEventsResponse = SessionEventsResponses[keyof SessionEventsResponses]
+
+export type SessionSpawnData = {
+  body?: {
+    title?: string
+    directory?: string
+    useWorktree?: boolean
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/session/{sessionID}/spawn"
+}
+
+export type SessionSpawnErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionSpawnError = SessionSpawnErrors[keyof SessionSpawnErrors]
+
+export type SessionSpawnResponses = {
+  /**
+   * Child session
+   */
+  200: Session
+}
+
+export type SessionSpawnResponse = SessionSpawnResponses[keyof SessionSpawnResponses]
+
+export type SessionJoinData = {
+  body?: {
+    childSessionID: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/session/{sessionID}/join"
+}
+
+export type SessionJoinErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionJoinError = SessionJoinErrors[keyof SessionJoinErrors]
+
+export type SessionJoinResponses = {
+  /**
+   * Join result
+   */
+  200: {
+    ok: true
+    summary: string
+    messageID: string
+    childSessionID: string
+  }
+}
+
+export type SessionJoinResponse = SessionJoinResponses[keyof SessionJoinResponses]
+
+export type SessionUiSnapshotCreateData = {
+  body?: {
+    url: string
+    headers?: {
+      [key: string]: string
+    }
+    maxHtml?: number
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/session/{sessionID}/ui/snapshot"
+}
+
+export type SessionUiSnapshotCreateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionUiSnapshotCreateError = SessionUiSnapshotCreateErrors[keyof SessionUiSnapshotCreateErrors]
+
+export type SessionUiSnapshotCreateResponses = {
+  /**
+   * Created snapshot
+   */
+  200: SessionUiSnapshot
+}
+
+export type SessionUiSnapshotCreateResponse = SessionUiSnapshotCreateResponses[keyof SessionUiSnapshotCreateResponses]
+
+export type SessionUiSnapshotCompareData = {
+  body?: {
+    beforeID: string
+    afterID: string
+    context?: number
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/session/{sessionID}/ui/snapshot/compare"
+}
+
+export type SessionUiSnapshotCompareErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionUiSnapshotCompareError = SessionUiSnapshotCompareErrors[keyof SessionUiSnapshotCompareErrors]
+
+export type SessionUiSnapshotCompareResponses = {
+  /**
+   * Comparison result
+   */
+  200: SessionUiSnapshotCompare
+}
+
+export type SessionUiSnapshotCompareResponse =
+  SessionUiSnapshotCompareResponses[keyof SessionUiSnapshotCompareResponses]
 
 export type SessionChildrenData = {
   body?: never
@@ -3161,6 +3506,10 @@ export type SessionPromptErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Too many requests
+   */
+  429: TooManyRequestsError
 }
 
 export type SessionPromptError = SessionPromptErrors[keyof SessionPromptErrors]
@@ -3348,6 +3697,10 @@ export type SessionPromptAsyncErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Too many requests
+   */
+  429: TooManyRequestsError
 }
 
 export type SessionPromptAsyncError = SessionPromptAsyncErrors[keyof SessionPromptAsyncErrors]
@@ -3399,6 +3752,10 @@ export type SessionCommandErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Too many requests
+   */
+  429: TooManyRequestsError
 }
 
 export type SessionCommandError = SessionCommandErrors[keyof SessionCommandErrors]
@@ -3445,6 +3802,10 @@ export type SessionShellErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Too many requests
+   */
+  429: TooManyRequestsError
 }
 
 export type SessionShellError = SessionShellErrors[keyof SessionShellErrors]

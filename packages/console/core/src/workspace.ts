@@ -7,7 +7,7 @@ import { UserTable } from "./schema/user.sql"
 import { BillingTable } from "./schema/billing.sql"
 import { WorkspaceTable } from "./schema/workspace.sql"
 import { Key } from "./key"
-import { eq, sql } from "drizzle-orm"
+import { eq } from "drizzle-orm"
 
 export namespace Workspace {
   export const create = fn(
@@ -69,7 +69,7 @@ export namespace Workspace {
     await Database.use((tx) =>
       tx
         .update(WorkspaceTable)
-        .set({ timeDeleted: sql`now()` })
+        .set({ timeDeleted: new Date() })
         .where(eq(WorkspaceTable.id, Actor.workspace())),
     )
   })

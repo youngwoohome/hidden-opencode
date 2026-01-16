@@ -14,7 +14,14 @@ export namespace BlackData {
   })
 
   export const get = fn(z.void(), () => {
-    const json = JSON.parse(Resource.ZEN_BLACK.value)
-    return Schema.parse(json)
+    try {
+      const json = JSON.parse(Resource.ZEN_BLACK.value)
+      return Schema.parse(json)
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("ZEN_BLACK")) {
+        return Schema.parse({ fixedLimit: 0, rollingLimit: 0, rollingWindow: 0 })
+      }
+      throw err
+    }
   })
 }

@@ -1,15 +1,15 @@
-import { index, mysqlEnum, mysqlTable, primaryKey, uniqueIndex, varchar } from "drizzle-orm/mysql-core"
+import { index, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 import { id, timestamps, ulid } from "../drizzle/types"
 
 export const AuthProvider = ["email", "github", "google"] as const
 
-export const AuthTable = mysqlTable(
+export const AuthTable = sqliteTable(
   "auth",
   {
     id: id(),
     ...timestamps,
-    provider: mysqlEnum("provider", AuthProvider).notNull(),
-    subject: varchar("subject", { length: 255 }).notNull(),
+    provider: text("provider", { enum: AuthProvider }).notNull(),
+    subject: text("subject", { length: 255 }).notNull(),
     accountID: ulid("account_id").notNull(),
   },
   (table) => [

@@ -652,34 +652,38 @@ export async function handler(
         }),
         db
           .update(KeyTable)
-          .set({ timeUsed: sql`now()` })
+          .set({ timeUsed: new Date() })
           .where(and(eq(KeyTable.workspaceID, authInfo.workspaceID), eq(KeyTable.id, authInfo.apiKeyId))),
         ...(authInfo.subscription
           ? (() => {
               const black = BlackData.get()
               const week = getWeekBounds(new Date())
               const rollingWindowSeconds = black.rollingWindow * 3600
+              const now = Date.now()
+              const nowDate = new Date(now)
+              const weekStart = week.start.getTime()
+              const rollingCutoff = now - rollingWindowSeconds * 1000
               return [
                 db
                   .update(SubscriptionTable)
                   .set({
                     fixedUsage: sql`
               CASE
-                WHEN ${SubscriptionTable.timeFixedUpdated} >= ${week.start} THEN ${SubscriptionTable.fixedUsage} + ${cost}
+                WHEN ${SubscriptionTable.timeFixedUpdated} >= ${weekStart} THEN ${SubscriptionTable.fixedUsage} + ${cost}
                 ELSE ${cost}
               END
             `,
-                    timeFixedUpdated: sql`now()`,
+                    timeFixedUpdated: nowDate,
                     rollingUsage: sql`
               CASE
-                WHEN UNIX_TIMESTAMP(${SubscriptionTable.timeRollingUpdated}) >= UNIX_TIMESTAMP(now()) - ${rollingWindowSeconds} THEN ${SubscriptionTable.rollingUsage} + ${cost}
+                WHEN ${SubscriptionTable.timeRollingUpdated} >= ${rollingCutoff} THEN ${SubscriptionTable.rollingUsage} + ${cost}
                 ELSE ${cost}
               END
             `,
                     timeRollingUpdated: sql`
               CASE
-                WHEN UNIX_TIMESTAMP(${SubscriptionTable.timeRollingUpdated}) >= UNIX_TIMESTAMP(now()) - ${rollingWindowSeconds} THEN ${SubscriptionTable.timeRollingUpdated}
-                ELSE now()
+                WHEN ${SubscriptionTable.timeRollingUpdated} >= ${rollingCutoff} THEN ${SubscriptionTable.timeRollingUpdated}
+                ELSE ${now}
               END
             `,
                   })
@@ -691,7 +695,11 @@ export async function handler(
                   ),
               ]
             })()
-          : [
+          : (() => {
+              const now = Date.now()
+              const nowDate = new Date(now)
+              const monthStart = Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), 1)
+              return [
               db
                 .update(BillingTable)
                 .set({
@@ -700,11 +708,11 @@ export async function handler(
                     : sql`${BillingTable.balance} - ${cost}`,
                   monthlyUsage: sql`
               CASE
-                WHEN MONTH(${BillingTable.timeMonthlyUsageUpdated}) = MONTH(now()) AND YEAR(${BillingTable.timeMonthlyUsageUpdated}) = YEAR(now()) THEN ${BillingTable.monthlyUsage} + ${cost}
+                WHEN ${BillingTable.timeMonthlyUsageUpdated} >= ${monthStart} THEN ${BillingTable.monthlyUsage} + ${cost}
                 ELSE ${cost}
               END
             `,
-                  timeMonthlyUsageUpdated: sql`now()`,
+                  timeMonthlyUsageUpdated: nowDate,
                 })
                 .where(eq(BillingTable.workspaceID, authInfo.workspaceID)),
               db
@@ -712,14 +720,15 @@ export async function handler(
                 .set({
                   monthlyUsage: sql`
               CASE
-                WHEN MONTH(${UserTable.timeMonthlyUsageUpdated}) = MONTH(now()) AND YEAR(${UserTable.timeMonthlyUsageUpdated}) = YEAR(now()) THEN ${UserTable.monthlyUsage} + ${cost}
+                WHEN ${UserTable.timeMonthlyUsageUpdated} >= ${monthStart} THEN ${UserTable.monthlyUsage} + ${cost}
                 ELSE ${cost}
               END
             `,
-                  timeMonthlyUsageUpdated: sql`now()`,
+                  timeMonthlyUsageUpdated: nowDate,
                 })
                 .where(and(eq(UserTable.workspaceID, authInfo.workspaceID), eq(UserTable.id, authInfo.user.id))),
-            ]),
+              ]
+            })()),
       ]),
     )
 
@@ -738,18 +747,20 @@ export async function handler(
     if (authInfo.billing.balance - costInfo.costInMicroCents >= reloadTrigger) return
     if (authInfo.billing.timeReloadLockedTill && authInfo.billing.timeReloadLockedTill > new Date()) return
 
+    const now = new Date()
+    const lockUntil = new Date(now.getTime() + 60_000)
     const lock = await Database.use((tx) =>
       tx
         .update(BillingTable)
         .set({
-          timeReloadLockedTill: sql`now() + interval 1 minute`,
+          timeReloadLockedTill: lockUntil,
         })
         .where(
           and(
             eq(BillingTable.workspaceID, authInfo.workspaceID),
             eq(BillingTable.reload, true),
             lt(BillingTable.balance, reloadTrigger),
-            or(isNull(BillingTable.timeReloadLockedTill), lt(BillingTable.timeReloadLockedTill, sql`now()`)),
+            or(isNull(BillingTable.timeReloadLockedTill), lt(BillingTable.timeReloadLockedTill, now)),
           ),
         ),
     )

@@ -80,7 +80,31 @@ export namespace ModelsDev {
     const file = Bun.file(filepath)
     const result = await file.json().catch(() => {})
     if (result) return result as Record<string, Provider>
-    const json = await data()
+    let json: string | undefined
+    try {
+      if (typeof data === "function") {
+        json = await data()
+      }
+    } catch (error) {
+      log.error("Failed to load models from macro", { error })
+    }
+    if (!json && !Flag.OPENCODE_DISABLE_MODELS_FETCH) {
+      const response = await fetch("https://models.dev/api.json", {
+        headers: {
+          "User-Agent": Installation.USER_AGENT,
+        },
+        signal: AbortSignal.timeout(10 * 1000),
+      }).catch((error) => {
+        log.error("Failed to fetch models.dev", { error })
+      })
+      if (response && response.ok) {
+        json = await response.text()
+      }
+    }
+    if (!json) {
+      log.error("models.dev data unavailable; returning empty provider list")
+      return {}
+    }
     return JSON.parse(json) as Record<string, Provider>
   }
 

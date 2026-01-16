@@ -55,11 +55,14 @@ import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme"
 import { DialogSelectProvider } from "@/components/dialog-select-provider"
 import { DialogEditProject } from "@/components/dialog-edit-project"
 import { DialogSelectServer } from "@/components/dialog-select-server"
+import { DialogInspectRepo } from "@/components/dialog-inspect-repo"
 import { useCommand, type CommandOption } from "@/context/command"
 import { ConstrainDragXAxis } from "@/utils/solid-dnd"
 import { navStart } from "@/utils/perf"
 import { DialogSelectDirectory } from "@/components/dialog-select-directory"
 import { useServer } from "@/context/server"
+import { Persist, persisted } from "@/utils/persist"
+import { useInspectRepo } from "@/context/inspect-repo"
 
 export default function Layout(props: ParentProps) {
   const [store, setStore] = createStore({
@@ -67,6 +70,19 @@ export default function Layout(props: ParentProps) {
     activeDraggable: undefined as string | undefined,
     mobileProjectsExpanded: {} as Record<string, boolean>,
   })
+
+  type InspectSessionListEntry = {
+    id: string
+    repo: { url: string; ref: string }
+    sandboxUrl?: string
+    sandboxId?: string
+    sandboxProvider?: string
+    opencodeSessionID: string
+    worktree?: string
+    title?: string
+    createdAt: number
+    updatedAt: number
+  }
 
   const mobileProjects = {
     expanded: (directory: string) => store.mobileProjectsExpanded[directory] ?? true,
@@ -94,6 +110,7 @@ export default function Layout(props: ParentProps) {
   const dialog = useDialog()
   const command = useCommand()
   const theme = useTheme()
+  const inspectRepo = useInspectRepo()
   const availableThemeEntries = createMemo(() => Object.entries(theme.themes()))
   const colorSchemeOrder: ColorScheme[] = ["system", "light", "dark"]
   const colorSchemeLabel: Record<ColorScheme, string> = {
@@ -101,6 +118,158 @@ export default function Layout(props: ParentProps) {
     light: "Light",
     dark: "Dark",
   }
+  const inspectApiUrl = () => import.meta.env.VITE_INSPECT_API_URL?.replace(/\/+$/, "")
+  const [inspectSessions, setInspectSessions] = createSignal<InspectSessionListEntry[]>([])
+  const [inspectLoading, setInspectLoading] = createSignal(false)
+  const [inspectError, setInspectError] = createSignal<string | null>(null)
+  const inspectPollMs = 60_000
+  const inspectPollMinGapMs = 5_000
+  let lastInspectFetchAt = 0
+  const [inspectSandboxes, setInspectSandboxes] = persisted(
+    Persist.global("inspect-sandboxes", ["inspect-sandboxes.v1"]),
+    createStore({
+      urls: [] as string[],
+    }),
+  )
+
+  const registerInspectSandbox = (url: string) => {
+    setInspectSandboxes("urls", (prev) => {
+      const next = [url, ...prev.filter((item) => item !== url)]
+      return next.slice(0, 50)
+    })
+  }
+
+  const isInspectContext = createMemo(() => {
+    const url = server.url
+    if (!inspectApiUrl() || !url) return false
+    return url === inspectApiUrl() || inspectSandboxes.urls.includes(url)
+  })
+
+  const inspectRepoSlug = (url: string) => {
+    const trimmed = url.replace(/\/+$/, "")
+    const withoutProtocol = trimmed.replace(/^https?:\/\/(www\.)?/i, "")
+    const github = withoutProtocol.replace(/^github\.com\//i, "")
+    const withoutGit = github.replace(/\.git$/i, "")
+    return withoutGit || url
+  }
+
+  const inspectSandboxProvider = () => import.meta.env.VITE_INSPECT_SANDBOX_PROVIDER ?? "modal"
+  const inspectModel = () => import.meta.env.VITE_INSPECT_MODEL
+  const inspectAuthUrl = () => import.meta.env.VITE_INSPECT_AUTH_URL?.trim().replace(/\/+$/, "")
+
+  const parseModel = (input?: string) => {
+    if (!input) return undefined
+    const [providerID, ...rest] = input.split("/")
+    if (!providerID || rest.length === 0) return undefined
+    return { providerID, modelID: rest.join("/") }
+  }
+
+  const openInspectAuth = () => {
+    const url = inspectAuthUrl()
+    if (!url) {
+      showToast({
+        title: "Inspect OAuth URL missing",
+        description: "Set VITE_INSPECT_AUTH_URL to your console /auth URL.",
+      })
+      return
+    }
+    platform.openLink(url)
+  }
+
+  const startInspectSessionFromSidebar = async () => {
+    const apiUrl = inspectApiUrl()
+    const repo = inspectRepo.current()
+    if (!apiUrl || !repo?.url) {
+      showToast({
+        title: "Inspect repo missing",
+        description: "Add a repository before starting a new Inspect session.",
+      })
+      dialog.show(() => <DialogInspectRepo />)
+      return
+    }
+
+    try {
+      const response = await (platform.fetch ?? fetch)(`${apiUrl}/session`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        repo: { url: repo.url, ...(repo.ref ? { ref: repo.ref } : {}) },
+          model: parseModel(inspectModel()),
+          sandbox: { provider: inspectSandboxProvider() },
+        }),
+      })
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "")
+        throw new Error(detail || response.statusText)
+      }
+      const data = await response.json()
+      const sandboxUrl = data?.sandbox?.url as string | undefined
+      const sessionID = data?.opencode?.sessionID as string | undefined
+      if (!sandboxUrl) throw new Error("Sandbox URL not returned")
+      registerInspectSandbox(sandboxUrl)
+      server.add(sandboxUrl)
+
+      let worktree = "/work/repo"
+      try {
+        const projectResponse = await (platform.fetch ?? fetch)(`${sandboxUrl}/project/current`)
+        if (projectResponse.ok) {
+          const project = await projectResponse.json()
+          if (typeof project?.worktree === "string" && project.worktree.trim()) {
+            worktree = project.worktree
+          }
+        }
+      } catch {}
+
+      const encoded = base64Encode(worktree)
+      navigate(`/${encoded}/session${sessionID ? `/${sessionID}` : ""}`)
+      void loadInspectSessions()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to start sandbox"
+      showToast({ title: "Sandbox start failed", description: message })
+    }
+  }
+
+  const loadInspectSessions = async () => {
+    const apiUrl = inspectApiUrl()
+    if (!apiUrl) return
+    if (inspectLoading()) return
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return
+    const now = Date.now()
+    if (now - lastInspectFetchAt < inspectPollMinGapMs) return
+    lastInspectFetchAt = now
+    setInspectLoading(true)
+    setInspectError(null)
+    try {
+      const response = await (platform.fetch ?? fetch)(`${apiUrl}/session?limit=200`)
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "")
+        throw new Error(detail || response.statusText)
+      }
+      const data = (await response.json()) as {
+        items?: InspectSessionListEntry[]
+      }
+      const items = Array.isArray(data.items) ? data.items.filter(Boolean) : []
+      items.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+      setInspectSessions(items)
+      for (const item of items) {
+        if (item.sandboxUrl) registerInspectSandbox(item.sandboxUrl)
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to load Inspect sessions"
+      setInspectError(message)
+    } finally {
+      setInspectLoading(false)
+    }
+  }
+
+  createEffect(() => {
+    if (!inspectApiUrl()) return
+    void loadInspectSessions()
+    const interval = setInterval(() => {
+      void loadInspectSessions()
+    }, inspectPollMs)
+    onCleanup(() => clearInterval(interval))
+  })
 
   function cycleTheme(direction = 1) {
     const ids = availableThemeEntries().map(([id]) => id)
@@ -127,6 +296,68 @@ export default function Layout(props: ParentProps) {
       title: "Color scheme",
       description: colorSchemeLabel[next],
     })
+  }
+
+  const inspectSessionTitle = (session: InspectSessionListEntry) => {
+    if (session.title && session.title.trim()) return session.title
+    if (session.repo?.url) return inspectRepoSlug(session.repo.url)
+    return `Session ${session.id.slice(-8)}`
+  }
+
+  const openInspectSession = (session: InspectSessionListEntry) => {
+    if (!session.sandboxUrl || !session.worktree || !session.opencodeSessionID) {
+      showToast({
+        title: "Inspect session unavailable",
+        description: "Missing sandbox connection details for this session.",
+      })
+      return
+    }
+    server.add(session.sandboxUrl)
+    const encoded = base64Encode(session.worktree)
+    navigate(`/${encoded}/session/${session.opencodeSessionID}`)
+  }
+
+  const deleteInspectSession = async (session: InspectSessionListEntry) => {
+    const apiUrl = inspectApiUrl()
+    if (!apiUrl) {
+      showToast({ title: "Delete failed", description: "Inspect API URL is missing." })
+      return
+    }
+    const confirmed = window.confirm(`Delete "${inspectSessionTitle(session)}"? This cannot be undone.`)
+    if (!confirmed) return
+    try {
+      const response = await (platform.fetch ?? fetch)(`${apiUrl}/session/${session.id}`, { method: "DELETE" })
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "")
+        throw new Error(detail || response.statusText)
+      }
+      const payload = (await response.json().catch(() => ({}))) as { warning?: string }
+      const next = inspectSessions().filter((item) => item.id !== session.id)
+      setInspectSessions(next)
+      if (session.sandboxUrl) {
+        setInspectSandboxes("urls", (prev) => {
+          const stillUsed = next.some((item) => item.sandboxUrl === session.sandboxUrl)
+          if (stillUsed) return prev
+          return prev.filter((url) => url !== session.sandboxUrl)
+        })
+      }
+      if (payload.warning) {
+        showToast({
+          title: "Session deleted with warning",
+          description: payload.warning,
+        })
+      }
+      void loadInspectSessions()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to delete Inspect session"
+      showToast({ title: "Delete failed", description: message })
+    }
+  }
+
+  const handleNewSessionClick = (event?: MouseEvent) => {
+    if (!isInspectContext()) return
+    event?.preventDefault()
+    void startInspectSessionFromSidebar()
   }
 
   onMount(() => {
@@ -514,7 +745,7 @@ export default function Layout(props: ParentProps) {
   }
 
   async function archiveSession(session: Session) {
-    const [store, setStore] = globalSync.child(session.directory)
+    const [store] = globalSync.child(session.directory)
     const sessions = store.session ?? []
     const index = sessions.findIndex((s) => s.id === session.id)
     const nextSession = sessions[index + 1] ?? sessions[index - 1]
@@ -524,12 +755,36 @@ export default function Layout(props: ParentProps) {
       sessionID: session.id,
       time: { archived: Date.now() },
     })
+    if (session.id === params.id) {
+      if (nextSession) {
+        navigate(`/${params.dir}/session/${nextSession.id}`)
+      } else {
+        navigate(`/${params.dir}/session`)
+      }
+    }
+  }
+
+  async function deleteSession(session: Session) {
+    const confirmed = window.confirm(`Delete "${session.title}"? This cannot be undone.`)
+    if (!confirmed) return
+    const [store, setStore] = globalSync.child(session.directory)
+    const sessions = store.session ?? []
+    const index = sessions.findIndex((s) => s.id === session.id)
+    const nextSession = sessions[index + 1] ?? sessions[index - 1]
+
+    await globalSDK.client.session.delete({
+      directory: session.directory,
+      sessionID: session.id,
+    })
+
     setStore(
       produce((draft) => {
-        const match = Binary.search(draft.session, session.id, (s) => s.id)
-        if (match.found) draft.session.splice(match.index, 1)
+        const remaining = draft.session.filter((s) => s.id !== session.id && s.parentID !== session.id)
+        draft.session.splice(0, draft.session.length, ...remaining)
       }),
     )
+    void globalSync.project.loadSessions(session.directory)
+
     if (session.id === params.id) {
       if (nextSession) {
         navigate(`/${params.dir}/session/${nextSession.id}`)
@@ -825,6 +1080,62 @@ export default function Layout(props: ParentProps) {
     )
   }
 
+  const InspectSessionItem = (props: { session: InspectSessionListEntry; mobile?: boolean }): JSX.Element => {
+    const updated = createMemo(() => DateTime.fromMillis(props.session.updatedAt ?? props.session.createdAt))
+    const title = createMemo(() => inspectSessionTitle(props.session))
+    const repoLabel = createMemo(() => (props.session.repo?.url ? inspectRepoSlug(props.session.repo.url) : undefined))
+    const isActive = createMemo(
+      () => props.session.sandboxUrl === server.url && props.session.opencodeSessionID === params.id,
+    )
+    const disabled = createMemo(
+      () => !props.session.sandboxUrl || !props.session.worktree || !props.session.opencodeSessionID,
+    )
+    return (
+      <div
+        data-session-id={props.session.id}
+        class="group/session relative w-full rounded-md cursor-default transition-colors
+               hover:bg-surface-raised-base-hover focus-within:bg-surface-raised-base-hover has-[.active]:bg-surface-raised-base-hover"
+      >
+        <button
+          type="button"
+          disabled={disabled()}
+          classList={{
+            "flex flex-col gap-1 min-w-0 text-left w-full focus:outline-none px-2 py-1.5 pr-10": true,
+            "opacity-50": disabled(),
+            active: isActive(),
+          }}
+          onClick={() => openInspectSession(props.session)}
+        >
+          <div class="flex items-center self-stretch gap-3 justify-between">
+            <span class="text-14-regular text-text-strong overflow-hidden text-ellipsis truncate">{title()}</span>
+            <span class="text-12-regular text-text-weak shrink-0">{updated().toRelative()}</span>
+          </div>
+          <Show when={repoLabel()}>
+            {(label) => <span class="text-12-regular text-text-weak truncate">{label()}</span>}
+          </Show>
+        </button>
+        <div class="flex text-text-base gap-1 items-center absolute right-1 top-1/2 -translate-y-1/2 z-20 opacity-100">
+          <IconButton
+            icon="trash"
+            variant="ghost"
+            size="large"
+            title="Delete session"
+            aria-label="Delete session"
+            style={{
+              "--icon-button-color": "var(--icon-weak-base)",
+              "--icon-button-hover-color": "var(--icon-critical-base)",
+            }}
+            onPointerDown={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              void deleteInspectSession(props.session)
+            }}
+          />
+        </div>
+      </div>
+    )
+  }
+
   const SessionItem = (props: {
     session: Session
     slug: string
@@ -916,12 +1227,17 @@ export default function Layout(props: ParentProps) {
             </A>
           </Tooltip>
           <div class="hidden group-hover/session:flex group-active/session:flex group-focus-within/session:flex text-text-base gap-1 items-center absolute top-1 right-1">
-            <TooltipKeybind
-              placement={props.mobile ? "bottom" : "right"}
-              title="Archive session"
-              keybind={command.keybind("session.archive")}
-            >
-              <IconButton icon="archive" variant="ghost" onClick={() => archiveSession(props.session)} />
+            <Show when={!props.session.time?.archived}>
+              <TooltipKeybind
+                placement={props.mobile ? "bottom" : "right"}
+                title="Archive session"
+                keybind={command.keybind("session.archive")}
+              >
+                <IconButton icon="archive" variant="ghost" onClick={() => archiveSession(props.session)} />
+              </TooltipKeybind>
+            </Show>
+            <TooltipKeybind placement={props.mobile ? "bottom" : "right"} title="Delete session">
+              <IconButton icon="circle-x" variant="ghost" onClick={() => deleteSession(props.session)} />
             </TooltipKeybind>
           </div>
         </div>
@@ -944,7 +1260,9 @@ export default function Layout(props: ParentProps) {
         .toSorted(sortSessions),
     )
     const rootSessions = createMemo(() => sessions().filter((s) => !s.parentID))
-    const hasMoreSessions = createMemo(() => store.session.length >= store.limit)
+    const activeSessions = createMemo(() => rootSessions().filter((s) => !s.time?.archived))
+    const inactiveSessions = createMemo(() => rootSessions().filter((s) => s.time?.archived))
+    const hasMoreSessions = createMemo(() => activeSessions().length >= store.limit)
     const loadMoreSessions = async () => {
       setProjectStore("limit", (limit) => limit + 5)
       await globalSync.project.loadSessions(props.project.worktree)
@@ -1005,13 +1323,22 @@ export default function Layout(props: ParentProps) {
                     </DropdownMenu.Portal>
                   </DropdownMenu>
                   <TooltipKeybind placement="top" title="New session" keybind={command.keybind("session.new")}>
-                    <IconButton as={A} href={`${defaultWorktree()}/session`} icon="plus-small" variant="ghost" />
+                    <IconButton
+                      as={A}
+                      href={`${defaultWorktree()}/session`}
+                      icon="plus-small"
+                      variant="ghost"
+                      onClick={handleNewSessionClick}
+                    />
                   </TooltipKeybind>
                 </div>
               </Button>
               <Collapsible.Content>
                 <nav class="hidden @[4rem]:flex w-full flex-col gap-1.5">
-                  <For each={rootSessions()}>
+                  <Show when={activeSessions().length > 0}>
+                    <div class="px-3 pb-1 text-10-uppercase tracking-wide text-text-weak">Active</div>
+                  </Show>
+                  <For each={activeSessions()}>
                     {(session) => (
                       <SessionItem
                         session={session}
@@ -1021,7 +1348,7 @@ export default function Layout(props: ParentProps) {
                       />
                     )}
                   </For>
-                  <Show when={rootSessions().length === 0}>
+                  <Show when={activeSessions().length === 0}>
                     <div
                       class="group/session relative w-full pl-4 pr-2 py-1 rounded-md cursor-default transition-colors
                              hover:bg-surface-raised-base-hover focus-within:bg-surface-raised-base-hover has-[.active]:bg-surface-raised-base-hover"
@@ -1032,6 +1359,7 @@ export default function Layout(props: ParentProps) {
                             <A
                               href={`${defaultWorktree()}/session`}
                               class="flex flex-col gap-1 min-w-0 text-left w-full focus:outline-none"
+                              onClick={handleNewSessionClick}
                             >
                               <div class="flex items-center self-stretch gap-6 justify-between">
                                 <span class="text-14-regular text-text-strong overflow-hidden text-ellipsis truncate">
@@ -1056,6 +1384,19 @@ export default function Layout(props: ParentProps) {
                       </Button>
                     </div>
                   </Show>
+                  <Show when={inactiveSessions().length > 0}>
+                    <div class="pt-3 px-3 pb-1 text-10-uppercase tracking-wide text-text-weak">Inactive</div>
+                  </Show>
+                  <For each={inactiveSessions()}>
+                    {(session) => (
+                      <SessionItem
+                        session={session}
+                        slug={base64Encode(session.directory)}
+                        project={props.project}
+                        mobile={props.mobile}
+                      />
+                    )}
+                  </For>
                 </nav>
               </Collapsible.Content>
             </Collapsible>
@@ -1154,6 +1495,28 @@ export default function Layout(props: ParentProps) {
                 }}
                 class="w-full min-w-8 flex flex-col gap-2 min-h-0 overflow-y-auto no-scrollbar"
               >
+                <Show when={inspectApiUrl() && expanded()}>
+                  <div class="flex flex-col gap-1.5 px-1">
+                    <div class="px-2 pb-1 text-10-uppercase tracking-wide text-text-weak">Inspect sessions</div>
+                    <Show when={inspectError()}>
+                      {(message) => (
+                        <div class="px-2 text-12-regular text-text-weak truncate">Failed to load: {message()}</div>
+                      )}
+                    </Show>
+                    <Show when={inspectLoading() && inspectSessions().length === 0}>
+                      <div class="px-2 py-1 text-12-regular text-text-weak flex items-center gap-2">
+                        <Spinner size="small" class="text-text-weak" />
+                        Loading sessions
+                      </div>
+                    </Show>
+                    <Show when={!inspectLoading() && inspectSessions().length === 0 && !inspectError()}>
+                      <div class="px-2 py-1 text-12-regular text-text-weak">No Inspect sessions yet</div>
+                    </Show>
+                    <For each={inspectSessions()}>
+                      {(session) => <InspectSessionItem session={session} mobile={sidebarProps.mobile} />}
+                    </For>
+                  </div>
+                </Show>
                 <SortableProvider ids={layout.projects.list().map((p) => p.worktree)}>
                   <For each={layout.projects.list()}>
                     {(project) => <SortableProject project={project} mobile={sidebarProps.mobile} />}
@@ -1221,6 +1584,30 @@ export default function Layout(props: ParentProps) {
               onClick={chooseProject}
             >
               <Show when={expanded()}>Open project</Show>
+            </Button>
+          </Tooltip>
+          <Show when={inspectApiUrl()}>
+            <Tooltip placement="right" value="Configure Inspect repo" inactive={expanded()}>
+              <Button
+                class="flex w-full text-left justify-start text-text-base stroke-[1.5px] rounded-lg px-2"
+                variant="ghost"
+                size="large"
+                icon="branch"
+                onClick={() => dialog.show(() => <DialogInspectRepo />)}
+              >
+                <Show when={expanded()}>Inspect repo</Show>
+              </Button>
+            </Tooltip>
+          </Show>
+          <Tooltip placement="right" value="Sign in with GitHub" inactive={expanded()}>
+            <Button
+              class="flex w-full text-left justify-start text-text-base stroke-[1.5px] rounded-lg px-2"
+              variant="ghost"
+              size="large"
+              icon="github"
+              onClick={openInspectAuth}
+            >
+              <Show when={expanded()}>Sign in with GitHub</Show>
             </Button>
           </Tooltip>
           <Tooltip placement="right" value="Share feedback" inactive={expanded()}>

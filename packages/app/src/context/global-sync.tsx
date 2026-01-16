@@ -114,18 +114,19 @@ function createGlobalSync() {
       .list({ directory })
       .then((x) => {
         const fourHoursAgo = Date.now() - 4 * 60 * 60 * 1000
-        const nonArchived = (x.data ?? [])
+        const sessions = (x.data ?? [])
           .filter((s) => !!s?.id)
-          .filter((s) => !s.time?.archived)
           .slice()
           .sort((a, b) => a.id.localeCompare(b.id))
+        const active = sessions.filter((s) => !s.time?.archived)
+        const inactive = sessions.filter((s) => s.time?.archived)
         // Include up to the limit, plus any updated in the last 4 hours
-        const sessions = nonArchived.filter((s, i) => {
+        const activeLimited = active.filter((s, i) => {
           if (i < store.limit) return true
           const updated = new Date(s.time?.updated ?? s.time?.created).getTime()
           return updated > fourHoursAgo
         })
-        setStore("session", reconcile(sessions, { key: "id" }))
+        setStore("session", reconcile([...activeLimited, ...inactive], { key: "id" }))
       })
       .catch((err) => {
         console.error("Failed to load sessions", err)
@@ -248,17 +249,6 @@ function createGlobalSync() {
       }
       case "session.updated": {
         const result = Binary.search(store.session, event.properties.info.id, (s) => s.id)
-        if (event.properties.info.time.archived) {
-          if (result.found) {
-            setStore(
-              "session",
-              produce((draft) => {
-                draft.splice(result.index, 1)
-              }),
-            )
-          }
-          break
-        }
         if (result.found) {
           setStore("session", result.index, reconcile(event.properties.info))
           break
@@ -267,6 +257,17 @@ function createGlobalSync() {
           "session",
           produce((draft) => {
             draft.splice(result.index, 0, event.properties.info)
+          }),
+        )
+        break
+      }
+      case "session.deleted": {
+        const deleted = event.properties.info.id
+        setStore(
+          "session",
+          produce((draft) => {
+            const index = draft.findIndex((s) => s.id === deleted)
+            if (index !== -1) draft.splice(index, 1)
           }),
         )
         break

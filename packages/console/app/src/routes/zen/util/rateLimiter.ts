@@ -16,7 +16,10 @@ export function createRateLimiter(limit: number | undefined, rawIp: string) {
         tx
           .insert(IpRateLimitTable)
           .values({ ip, interval: intervals[0], count: 1 })
-          .onDuplicateKeyUpdate({ set: { count: sql`${IpRateLimitTable.count} + 1` } }),
+          .onConflictDoUpdate({
+            target: [IpRateLimitTable.ip, IpRateLimitTable.interval],
+            set: { count: sql`${IpRateLimitTable.count} + 1` },
+          }),
       )
     },
     check: async () => {

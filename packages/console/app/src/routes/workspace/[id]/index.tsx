@@ -5,6 +5,7 @@ import { NewUserSection } from "./new-user-section"
 import { UsageSection } from "./usage-section"
 import { ModelSection } from "./model-section"
 import { ProviderSection } from "./provider-section"
+import { GithubAllowlistSection } from "./github-allowlist-section"
 import { GraphSection } from "./graph-section"
 import { IconLogo } from "~/component/icon"
 import { querySessionInfo, queryBillingInfo, createCheckoutUrl, formatBalance } from "../common"
@@ -73,6 +74,7 @@ export default function () {
         <ModelSection />
         <Show when={userInfo()?.isAdmin}>
           <ProviderSection />
+          <GithubAllowlistSection />
         </Show>
         <UsageSection />
       </div>

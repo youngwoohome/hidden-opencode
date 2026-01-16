@@ -29,6 +29,8 @@ import os
 import subprocess
 import contextlib
 import io
+import base64
+import re
 
 
 def die(msg: str) -> None:
@@ -67,6 +69,15 @@ def _require_modal():
     return modal
 
 
+def _github_extra_header(token: str) -> str:
+    credentials = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode("utf-8")
+    return f"AUTHORIZATION: basic {credentials}"
+
+
+def _is_github_repo(url: str) -> bool:
+    return bool(re.search(r"github\.com[:/]", url, re.IGNORECASE))
+
+
 def opencode_server() -> None:
     """
     Runs inside the Modal container. All configuration is passed via env vars.
@@ -85,12 +96,32 @@ def opencode_server() -> None:
     with open(".opencode/sync.pending", "w", encoding="utf-8") as f:
         f.write("pending\n")
 
+    extraheader = None
+    github_token = os.environ.get("OPENCODE_GITHUB_APP_TOKEN", "").strip()
+    if github_token and _is_github_repo(repo_url):
+        extraheader = _github_extra_header(github_token)
+
     # bootstrap repo
     if not os.path.isdir("repo/.git"):
-        subprocess.run(["git", "clone", repo_url, "repo"], check=True)
+        if extraheader:
+            subprocess.run(
+                ["git", "-c", f"http.https://github.com/.extraheader={extraheader}", "clone", repo_url, "repo"],
+                check=True,
+            )
+        else:
+            subprocess.run(["git", "clone", repo_url, "repo"], check=True)
     os.chdir(os.path.join(workdir, "repo"))
+    if extraheader:
+        subprocess.run(["git", "config", "--local", "http.https://github.com/.extraheader", extraheader], check=True)
     subprocess.run(["git", "fetch", "--all", "--tags"], check=True)
     subprocess.run(["git", "checkout", repo_ref], check=True)
+    auto_branch = os.environ.get("OPENCODE_AUTO_BRANCH", "1").strip().lower() not in ("0", "false", "no")
+    if auto_branch:
+        current_branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True).strip()
+        if current_branch in ("main", "master", "HEAD"):
+            suffix = "".join(random.choice(string.ascii_lowercase + string.digits) for _ in range(6))
+            branch_name = f"opencode/auto-{int(time.time())}-{suffix}"
+            subprocess.run(["git", "checkout", "-b", branch_name], check=True)
 
     # release sync lock
     os.chdir(workdir)
@@ -100,6 +131,42 @@ def opencode_server() -> None:
         pass
 
     repo_dir = os.path.join(workdir, "repo")
+    server_source = os.environ.get("OPENCODE_SERVER_SOURCE", "").strip().lower()
+    server_repo_url = os.environ.get("OPENCODE_SERVER_REPO_URL", "").strip()
+    server_repo_ref = os.environ.get("OPENCODE_SERVER_REPO_REF", "").strip()
+    use_repo_server = server_source in ("1", "true", "yes", "repo", "source", "dev") or bool(server_repo_url)
+    server_repo_dir = repo_dir
+
+    if use_repo_server and server_repo_url:
+        server_repo_dir = os.path.join(workdir, "opencode-server")
+        if not os.path.isdir(os.path.join(server_repo_dir, ".git")):
+            if extraheader and _is_github_repo(server_repo_url):
+                try:
+                    subprocess.run(
+                        [
+                            "git",
+                            "-c",
+                            f"http.https://github.com/.extraheader={extraheader}",
+                            "clone",
+                            server_repo_url,
+                            server_repo_dir,
+                        ],
+                        check=True,
+                    )
+                except subprocess.CalledProcessError:
+                    subprocess.run(["git", "clone", server_repo_url, server_repo_dir], check=True)
+            else:
+                subprocess.run(["git", "clone", server_repo_url, server_repo_dir], check=True)
+        os.chdir(server_repo_dir)
+        subprocess.run(["git", "fetch", "--all", "--tags"], check=True)
+        if server_repo_ref:
+            subprocess.run(["git", "checkout", server_repo_ref], check=True)
+
+    if use_repo_server and not server_repo_url:
+        if not os.path.exists(os.path.join(repo_dir, "packages", "opencode", "src", "index.ts")):
+            use_repo_server = False
+        else:
+            server_repo_dir = repo_dir
 
     # Make server boot deterministic and fast in sandboxes:
     # - avoid writing to /root XDG dirs
@@ -139,32 +206,46 @@ def opencode_server() -> None:
     # will proxy HTTP traffic to it. If we block here, requests can appear "pending" forever.
     port = os.environ.get("OPENCODE_PORT", "4096")
 
-    # Run opencode server FROM THE CLONED REPO so local patches are reflected in the sandbox.
-    # This requires Bun (installed in the image build below).
-    try:
-        subprocess.run(["bun", "install"], cwd=repo_dir, check=False)
-    except Exception:
-        pass
-
-    args = [
-        "bun",
-        "run",
-        "--cwd",
-        os.path.join(repo_dir, "packages", "opencode"),
-        "--conditions=browser",
-        "src/index.ts",
-        "serve",
-        "--hostname",
-        "0.0.0.0",
-        "--port",
-        str(port),
-    ]
+    server_cwd = repo_dir
+    if use_repo_server:
+        bun_bin = os.environ.get("OPENCODE_BUN_BIN", "/root/.bun/bin/bun")
+        if not os.path.isdir(os.path.join(server_repo_dir, "node_modules")):
+            subprocess.run([bun_bin, "install"], cwd=server_repo_dir, check=True)
+        opencode_dir = os.path.join(server_repo_dir, "packages", "opencode")
+        server_cwd = opencode_dir
+        args = [
+            bun_bin,
+            "--conditions=browser",
+            os.path.join(opencode_dir, "src", "index.ts"),
+            "serve",
+            "--hostname",
+            "0.0.0.0",
+            "--port",
+            str(port),
+        ]
+    else:
+        # Run opencode server from the installed binary, not from the repo.
+        args = [
+            "opencode",
+            "serve",
+            "--hostname",
+            "0.0.0.0",
+            "--port",
+            str(port),
+        ]
+    cors_raw = os.environ.get("OPENCODE_SERVER_CORS", "")
+    if cors_raw.strip():
+        for entry in cors_raw.split(","):
+            value = entry.strip()
+            if value:
+                args.extend(["--cors", value])
     env = {
         **os.environ,
         "XDG_CONFIG_HOME": xdg_config,
         "XDG_DATA_HOME": xdg_data,
         "XDG_STATE_HOME": xdg_state,
         "XDG_CACHE_HOME": xdg_cache,
+        "PATH": f"/root/.bun/bin:/root/.opencode/bin:/root/.local/bin:/usr/local/bin:{os.environ.get('PATH', '')}",
         # Force server instance directory to sandbox-local repo root even if client
         # mistakenly sends a host-local directory header.
         "OPENCODE_SERVER_DIRECTORY": repo_dir,
@@ -176,7 +257,7 @@ def opencode_server() -> None:
         "OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER": "true",
     }
     env.setdefault("OPENCODE_SSE_HEARTBEAT_MS", "10000")
-    subprocess.Popen(args, cwd=repo_dir, env=env)
+    subprocess.Popen(args, cwd=server_cwd, env=env)
     return
 
 
@@ -239,16 +320,18 @@ def cmd_create(payload: Dict[str, Any]) -> None:
         # Best-effort: may still fail depending on base image.
         modal_image = modal.Image.from_registry(str(image), add_python=python_version)
     else:
-        # Dev-friendly image: includes Python (for Modal), git/curl, and Bun so we can run
-        # the cloned repo's opencode server code (including local patches) directly.
+        # Dev-friendly image: includes Python (for Modal), git/curl, and the opencode binary.
         modal_image = (
             modal.Image.debian_slim(python_version=python_version)
-            # Bun installer expects unzip; we also keep tar/gzip around for convenience.
-            .apt_install("git", "curl", "ca-certificates", "unzip", "tar", "gzip")
+            .apt_install("git", "curl", "ca-certificates", "bash")
             .run_commands(
                 "curl -fsSL https://bun.sh/install | bash",
-                "ln -sf /root/.bun/bin/bun /usr/local/bin/bun",
-                "bun --version",
+                "if [ -x /root/.bun/bin/bun ]; then ln -sf /root/.bun/bin/bun /usr/local/bin/bun; fi",
+                "OPENCODE_INSTALL_DIR=/usr/local/bin curl -fsSL https://opencode.ai/install | bash",
+                "if [ -x /root/.opencode/bin/opencode ]; then ln -sf /root/.opencode/bin/opencode /usr/local/bin/opencode; fi",
+                "if [ -x /root/.local/bin/opencode ]; then ln -sf /root/.local/bin/opencode /usr/local/bin/opencode; fi",
+                "/usr/local/bin/bun --version",
+                "/usr/local/bin/opencode --version",
                 "git --version",
             )
         )

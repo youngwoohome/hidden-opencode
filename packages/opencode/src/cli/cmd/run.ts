@@ -83,6 +83,10 @@ export const RunCommand = cmd({
         type: "string",
         describe: "attach to a running opencode server (e.g., http://localhost:4096)",
       })
+      .option("poll", {
+        type: "boolean",
+        describe: "poll for session updates instead of SSE (useful when SSE is blocked)",
+      })
       .option("port", {
         type: "number",
         describe: "port for the local server (defaults to random port if no value provided)",
@@ -151,82 +155,185 @@ export const RunCommand = cmd({
         return false
       }
 
-      const events = await sdk.event.subscribe()
       let errorMsg: string | undefined
+      let sawIdle = false
+      const seenPartIDs = new Set<string>()
+      const seenMessageErrors = new Set<string>()
+      const seenPermissionIDs = new Set<string>()
 
-      const eventProcessor = (async () => {
-        for await (const event of events.stream) {
-          if (event.type === "message.part.updated") {
-            const part = event.properties.part
-            if (part.sessionID !== sessionID) continue
+      const handlePart = (part: any) => {
+        if (seenPartIDs.has(part.id)) return
 
-            if (part.type === "tool" && part.state.status === "completed") {
-              if (outputJsonEvent("tool_use", { part })) continue
-              const [tool, color] = TOOL[part.tool] ?? [part.tool, UI.Style.TEXT_INFO_BOLD]
-              const title =
-                part.state.title ||
-                (Object.keys(part.state.input).length > 0 ? JSON.stringify(part.state.input) : "Unknown")
-              printEvent(color, tool, title)
-              if (part.tool === "bash" && part.state.output?.trim()) {
-                UI.println()
-                UI.println(part.state.output)
+        if (part.type === "tool" && part.state.status === "completed") {
+          if (outputJsonEvent("tool_use", { part })) {
+            seenPartIDs.add(part.id)
+            return
+          }
+          const [tool, color] = TOOL[part.tool] ?? [part.tool, UI.Style.TEXT_INFO_BOLD]
+          const input = part.state.input ?? {}
+          const title = part.state.title || (Object.keys(input).length > 0 ? JSON.stringify(input) : "Unknown")
+          printEvent(color, tool, title)
+          if (part.tool === "bash" && part.state.output?.trim()) {
+            UI.println()
+            UI.println(part.state.output)
+          }
+          seenPartIDs.add(part.id)
+          return
+        }
+
+        if (part.type === "step-start") {
+          if (outputJsonEvent("step_start", { part })) {
+            seenPartIDs.add(part.id)
+            return
+          }
+          seenPartIDs.add(part.id)
+          return
+        }
+
+        if (part.type === "step-finish") {
+          if (outputJsonEvent("step_finish", { part })) {
+            seenPartIDs.add(part.id)
+            return
+          }
+          seenPartIDs.add(part.id)
+          return
+        }
+
+        if (part.type === "text" && part.time?.end) {
+          if (outputJsonEvent("text", { part })) {
+            seenPartIDs.add(part.id)
+            return
+          }
+          const isPiped = !process.stdout.isTTY
+          if (!isPiped) UI.println()
+          process.stdout.write((isPiped ? part.text : UI.markdown(part.text)) + EOL)
+          if (!isPiped) UI.println()
+          seenPartIDs.add(part.id)
+        }
+      }
+
+      const handleMessageError = (info: any) => {
+        if (info.role !== "assistant" || !info.error) return
+        if (seenMessageErrors.has(info.id)) return
+        let err = String(info.error.name ?? "Error")
+        if ("data" in info.error && info.error.data && "message" in info.error.data) {
+          err = String(info.error.data.message)
+        }
+        seenMessageErrors.add(info.id)
+        errorMsg = errorMsg ? errorMsg + EOL + err : err
+        if (outputJsonEvent("error", { error: info.error })) return
+        UI.error(err)
+      }
+
+      const handlePermission = async (permission: any) => {
+        if (permission.sessionID !== sessionID) return
+        if (seenPermissionIDs.has(permission.id)) return
+        const result = await select({
+          message: `Permission required: ${permission.permission} (${permission.patterns.join(", ")})`,
+          options: [
+            { value: "once", label: "Allow once" },
+            { value: "always", label: "Always allow: " + permission.always.join(", ") },
+            { value: "reject", label: "Reject" },
+          ],
+          initialValue: "once",
+        }).catch(() => "reject")
+        const response = (result.toString().includes("cancel") ? "reject" : result) as "once" | "always" | "reject"
+        await sdk.permission.respond({
+          sessionID,
+          permissionID: permission.id,
+          response,
+        })
+        seenPermissionIDs.add(permission.id)
+      }
+
+      const pollEvents = async () => {
+        const rawInterval = Number.parseInt(process.env.OPENCODE_POLL_INTERVAL_MS ?? "1000", 10)
+        const intervalMs = Number.isFinite(rawInterval) && rawInterval > 0 ? rawInterval : 1000
+
+        while (true) {
+          const [statusResult, messagesResult, permissionsResult] = await Promise.all([
+            sdk.session.status().catch(() => undefined),
+            sdk.session.messages({ sessionID, limit: 100 }).catch(() => undefined),
+            sdk.permission.list().catch(() => undefined),
+          ])
+
+          const messages = messagesResult?.data ?? []
+          for (const message of messages) {
+            handleMessageError(message.info)
+            for (const part of message.parts) {
+              handlePart(part)
+            }
+          }
+
+          const permissions = permissionsResult?.data ?? []
+          for (const permission of permissions) {
+            if (permission.sessionID !== sessionID) continue
+            await handlePermission(permission)
+          }
+
+          const fallbackStatus = (() => {
+            const lastMessage = messages.at(-1)?.info
+            if (!lastMessage) return { type: "idle" as const }
+            if (lastMessage.role === "assistant") {
+              return lastMessage.time?.completed ? { type: "idle" as const } : { type: "busy" as const }
+            }
+            return { type: "busy" as const }
+          })()
+          const status = statusResult?.data?.[sessionID] ?? fallbackStatus
+          if (status.type === "idle") break
+
+          await Bun.sleep(intervalMs)
+        }
+      }
+
+      let eventProcessor: Promise<void> | undefined
+      if (!args.poll) {
+        const events = await sdk.event
+          .subscribe(
+            {},
+            args.attach
+              ? {
+                  sseMaxRetryAttempts: 0,
+                }
+              : undefined,
+          )
+          .catch(() => undefined)
+
+        if (events) {
+          eventProcessor = (async () => {
+            for await (const event of events.stream) {
+              if (event.type === "message.part.updated") {
+                const part = event.properties.part
+                if (part.sessionID !== sessionID) continue
+                handlePart(part)
+              }
+
+              if (event.type === "session.error") {
+                const props = event.properties
+                if (props.sessionID !== sessionID || !props.error) continue
+                let err = String(props.error.name)
+                if ("data" in props.error && props.error.data && "message" in props.error.data) {
+                  err = String(props.error.data.message)
+                }
+                errorMsg = errorMsg ? errorMsg + EOL + err : err
+                if (outputJsonEvent("error", { error: props.error })) continue
+                UI.error(err)
+              }
+
+              if (event.type === "session.idle" && event.properties.sessionID === sessionID) {
+                sawIdle = true
+                break
+              }
+
+              if (event.type === "permission.asked") {
+                const permission = event.properties
+                if (permission.sessionID !== sessionID) continue
+                await handlePermission(permission)
               }
             }
-
-            if (part.type === "step-start") {
-              if (outputJsonEvent("step_start", { part })) continue
-            }
-
-            if (part.type === "step-finish") {
-              if (outputJsonEvent("step_finish", { part })) continue
-            }
-
-            if (part.type === "text" && part.time?.end) {
-              if (outputJsonEvent("text", { part })) continue
-              const isPiped = !process.stdout.isTTY
-              if (!isPiped) UI.println()
-              process.stdout.write((isPiped ? part.text : UI.markdown(part.text)) + EOL)
-              if (!isPiped) UI.println()
-            }
-          }
-
-          if (event.type === "session.error") {
-            const props = event.properties
-            if (props.sessionID !== sessionID || !props.error) continue
-            let err = String(props.error.name)
-            if ("data" in props.error && props.error.data && "message" in props.error.data) {
-              err = String(props.error.data.message)
-            }
-            errorMsg = errorMsg ? errorMsg + EOL + err : err
-            if (outputJsonEvent("error", { error: props.error })) continue
-            UI.error(err)
-          }
-
-          if (event.type === "session.idle" && event.properties.sessionID === sessionID) {
-            break
-          }
-
-          if (event.type === "permission.asked") {
-            const permission = event.properties
-            if (permission.sessionID !== sessionID) continue
-            const result = await select({
-              message: `Permission required: ${permission.permission} (${permission.patterns.join(", ")})`,
-              options: [
-                { value: "once", label: "Allow once" },
-                { value: "always", label: "Always allow: " + permission.always.join(", ") },
-                { value: "reject", label: "Reject" },
-              ],
-              initialValue: "once",
-            }).catch(() => "reject")
-            const response = (result.toString().includes("cancel") ? "reject" : result) as "once" | "always" | "reject"
-            await sdk.permission.respond({
-              sessionID,
-              permissionID: permission.id,
-              response,
-            })
-          }
+          })()
         }
-      })()
+      }
 
       // Validate agent if specified
       const resolvedAgent = await (async () => {
@@ -273,7 +380,16 @@ export const RunCommand = cmd({
         })
       }
 
+      if (args.poll || !eventProcessor) {
+        await pollEvents()
+        if (errorMsg) process.exit(1)
+        return
+      }
+
       await eventProcessor
+      if (!sawIdle) {
+        await pollEvents()
+      }
       if (errorMsg) process.exit(1)
     }
 

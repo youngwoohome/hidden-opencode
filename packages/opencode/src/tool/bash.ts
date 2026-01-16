@@ -53,6 +53,106 @@ const parser = lazy(async () => {
   return p
 })
 
+function safeText(result: { text: () => string }) {
+  try {
+    return result.text().trim()
+  } catch {
+    return ""
+  }
+}
+
+function parseGithubRepo(url: string) {
+  const trimmed = url.trim()
+  const match = trimmed.match(/github\.com[:/](?<owner>[^/]+)\/(?<repo>[^/]+?)(?:\.git)?$/i)
+  if (!match?.groups) return undefined
+  return { owner: match.groups.owner, name: match.groups.repo }
+}
+
+async function resolveGitInfo(cwd: string) {
+  const remoteUrl =
+    process.env.OPENCODE_REPO_URL ||
+    safeText(await $`git remote get-url origin`.cwd(cwd).quiet().nothrow())
+  if (!remoteUrl) return undefined
+  const repo = parseGithubRepo(remoteUrl)
+  if (!repo) return undefined
+
+  let head = safeText(await $`git rev-parse --abbrev-ref HEAD`.cwd(cwd).quiet().nothrow())
+  if (!head || head === "HEAD") {
+    head = safeText(await $`git branch --show-current`.cwd(cwd).quiet().nothrow())
+  }
+  const commitSha = safeText(await $`git rev-parse HEAD`.cwd(cwd).quiet().nothrow())
+  let baseRef = safeText(await $`git symbolic-ref --short refs/remotes/origin/HEAD`.cwd(cwd).quiet().nothrow())
+  if (baseRef.startsWith("origin/")) baseRef = baseRef.slice("origin/".length)
+  const base = baseRef || "main"
+
+  if (!head || !commitSha) return undefined
+  return { repo, head, base, commitSha }
+}
+
+async function configureGitHubAppPush(cwd: string) {
+  const token = process.env.OPENCODE_GITHUB_APP_TOKEN?.trim()
+  if (!token) return
+
+  const remoteUrl = safeText(await $`git remote get-url origin`.cwd(cwd).quiet().nothrow())
+  if (!remoteUrl || !/github\.com[:/]/i.test(remoteUrl)) return
+
+  const config = "http.https://github.com/.extraheader"
+  const credentials = Buffer.from(`x-access-token:${token}`, "utf8").toString("base64")
+  const result = await $`git config --local ${config} "AUTHORIZATION: basic ${credentials}"`
+    .cwd(cwd)
+    .quiet()
+    .nothrow()
+  if (result.exitCode !== 0) {
+    log.warn("failed to configure github app token", { exitCode: result.exitCode })
+  }
+}
+
+async function reportSandboxPush(ctx: Tool.Context, cwd: string) {
+  const apiUrl = process.env.OPENCODE_API_URL?.trim()
+  const secret = process.env.OPENCODE_SANDBOX_EVENT_SECRET?.trim()
+  if (!apiUrl || !secret) {
+    return
+  }
+  const info = await resolveGitInfo(cwd)
+  if (!info) return
+
+  const payload: Record<string, unknown> = {
+    type: "sandbox.push",
+    idempotencyKey: `${ctx.sessionID}:${info.repo.owner}:${info.repo.name}:${info.head}:${info.commitSha}`,
+    sessionId: ctx.sessionID,
+    repo: info.repo,
+    base: info.base,
+    head: info.head,
+    commitSha: info.commitSha,
+    timestamp: new Date().toISOString(),
+  }
+  const accountID = process.env.OPENCODE_ACCOUNT_ID?.trim()
+  const workspaceID = process.env.OPENCODE_WORKSPACE_ID?.trim()
+  if (accountID) payload.accountID = accountID
+  if (workspaceID) payload.workspaceID = workspaceID
+  const githubToken = process.env.OPENCODE_GITHUB_TOKEN?.trim()
+  if (githubToken) payload.githubToken = githubToken
+
+  try {
+    const response = await fetch(new URL("/sandbox/events", apiUrl), {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${secret}`,
+      },
+      body: JSON.stringify(payload),
+    })
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "")
+      log.warn("sandbox push event failed", { status: response.status, detail })
+    }
+  } catch (error) {
+    log.warn("sandbox push event error", {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
 // TODO: we may wanna rename this tool so it works better on other shells
 export const BashTool = Tool.define("bash", async () => {
   const shell = Shell.acceptable()
@@ -109,6 +209,26 @@ export const BashTool = Tool.define("bash", async () => {
       const always = new Set<string>()
       const networkHosts = new Set<string>()
 
+      const gitSubcommand = (args: string[]) => {
+        if (args[0] !== "git") return undefined
+        const consumesValue = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace"])
+        for (let i = 1; i < args.length; i++) {
+          const arg = args[i]
+          if (arg === "--") {
+            return args[i + 1]
+          }
+          if (arg.startsWith("-")) {
+            if (consumesValue.has(arg) && i + 1 < args.length) {
+              i++
+            }
+            continue
+          }
+          return arg
+        }
+        return undefined
+      }
+
+      let sawGitPush = false
       for (const node of tree.rootNode.descendantsOfType("command")) {
         if (!node) continue
         const command = []
@@ -162,6 +282,10 @@ export const BashTool = Tool.define("bash", async () => {
           patterns.add(command.join(" "))
           always.add(BashArity.prefix(command).join(" ") + "*")
         }
+
+        if (command.length >= 2 && command[0] === "git" && gitSubcommand(command) === "push") {
+          sawGitPush = true
+        }
       }
 
       if (networkHosts.size > 0) {
@@ -192,6 +316,10 @@ export const BashTool = Tool.define("bash", async () => {
           always: Array.from(always),
           metadata: {},
         })
+      }
+
+      if (sawGitPush) {
+        await configureGitHubAppPush(cwd)
       }
 
       const proc = spawn(params.command, {
@@ -282,6 +410,10 @@ export const BashTool = Tool.define("bash", async () => {
 
       if (resultMetadata.length > 0) {
         output += "\n\n<bash_metadata>\n" + resultMetadata.join("\n") + "\n</bash_metadata>"
+      }
+
+      if (sawGitPush && proc.exitCode === 0) {
+        await reportSandboxPush(ctx, cwd)
       }
 
       return {

@@ -36,6 +36,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       createStore({
         list: [] as string[],
         projects: {} as Record<string, StoredProject[]>,
+        active: "",
       }),
     )
 
@@ -45,6 +46,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       const url = normalizeServerUrl(input)
       if (!url) return
       setActiveRaw(url)
+      setStore("active", url)
     }
 
     function add(input: string) {
@@ -54,6 +56,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       const fallback = normalizeServerUrl(props.defaultUrl)
       if (fallback && url === fallback) {
         setActiveRaw(url)
+        setStore("active", url)
         return
       }
 
@@ -62,6 +65,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
           setStore("list", store.list.length, url)
         }
         setActiveRaw(url)
+        setStore("active", url)
       })
     }
 
@@ -75,15 +79,17 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       batch(() => {
         setStore("list", list)
         setActiveRaw(next)
+        setStore("active", next)
       })
     }
 
     createEffect(() => {
       if (!ready()) return
       if (active()) return
-      const url = normalizeServerUrl(props.defaultUrl)
+      const url = normalizeServerUrl(store.active) ?? normalizeServerUrl(props.defaultUrl)
       if (!url) return
       setActiveRaw(url)
+      setStore("active", url)
     })
 
     const isReady = createMemo(() => ready() && !!active())

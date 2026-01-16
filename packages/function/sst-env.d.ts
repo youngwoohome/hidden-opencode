@@ -14,37 +14,9 @@ declare module "sst" {
       "type": "sst.sst.Linkable"
       "value": string
     }
-    "AWS_SES_ACCESS_KEY_ID": {
-      "type": "sst.sst.Secret"
-      "value": string
-    }
-    "AWS_SES_SECRET_ACCESS_KEY": {
-      "type": "sst.sst.Secret"
-      "value": string
-    }
-    "CLOUDFLARE_API_TOKEN": {
-      "type": "sst.sst.Secret"
-      "value": string
-    }
-    "CLOUDFLARE_DEFAULT_ACCOUNT_ID": {
-      "type": "sst.sst.Secret"
-      "value": string
-    }
     "Console": {
       "type": "sst.cloudflare.SolidStart"
       "url": string
-    }
-    "Database": {
-      "database": string
-      "host": string
-      "password": string
-      "port": number
-      "type": "sst.sst.Linkable"
-      "username": string
-    }
-    "EMAILOCTOPUS_API_KEY": {
-      "type": "sst.sst.Secret"
-      "value": string
     }
     "GITHUB_APP_ID": {
       "type": "sst.sst.Secret"
@@ -66,29 +38,9 @@ declare module "sst" {
       "type": "sst.sst.Secret"
       "value": string
     }
-    "HONEYCOMB_API_KEY": {
+    "SANDBOX_CONTROLLER_URL": {
       "type": "sst.sst.Secret"
       "value": string
-    }
-    "R2AccessKey": {
-      "type": "sst.sst.Secret"
-      "value": string
-    }
-    "R2SecretKey": {
-      "type": "sst.sst.Secret"
-      "value": string
-    }
-    "STRIPE_SECRET_KEY": {
-      "type": "sst.sst.Secret"
-      "value": string
-    }
-    "STRIPE_WEBHOOK_SECRET": {
-      "type": "sst.sst.Linkable"
-      "value": string
-    }
-    "Teams": {
-      "type": "sst.cloudflare.SolidStart"
-      "url": string
     }
     "Web": {
       "type": "sst.cloudflare.Astro"
@@ -97,38 +49,6 @@ declare module "sst" {
     "WebApp": {
       "type": "sst.cloudflare.StaticSite"
       "url": string
-    }
-    "ZEN_BLACK": {
-      "type": "sst.sst.Secret"
-      "value": string
-    }
-    "ZEN_MODELS1": {
-      "type": "sst.sst.Secret"
-      "value": string
-    }
-    "ZEN_MODELS2": {
-      "type": "sst.sst.Secret"
-      "value": string
-    }
-    "ZEN_MODELS3": {
-      "type": "sst.sst.Secret"
-      "value": string
-    }
-    "ZEN_MODELS4": {
-      "type": "sst.sst.Secret"
-      "value": string
-    }
-    "ZEN_MODELS5": {
-      "type": "sst.sst.Secret"
-      "value": string
-    }
-    "ZEN_MODELS6": {
-      "type": "sst.sst.Secret"
-      "value": string
-    }
-    "ZEN_MODELS7": {
-      "type": "sst.sst.Secret"
-      "value": string
     }
   }
 }
@@ -140,9 +60,8 @@ declare module "sst" {
     "AuthApi": cloudflare.Service
     "AuthStorage": cloudflare.KVNamespace
     "Bucket": cloudflare.R2Bucket
-    "EnterpriseStorage": cloudflare.R2Bucket
+    "Database": cloudflare.D1Database
     "GatewayKv": cloudflare.KVNamespace
-    "LogProcessor": cloudflare.Service
     "ZenData": cloudflare.R2Bucket
     "ZenDataNew": cloudflare.R2Bucket
   }

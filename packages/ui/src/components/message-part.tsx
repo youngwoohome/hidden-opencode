@@ -204,11 +204,28 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
         title: "Webfetch",
         subtitle: input.url,
       }
+    case "websearch":
+      return {
+        icon: "window-cursor",
+        title: "Web search",
+        subtitle: input.query,
+      }
+    case "codesearch":
+      return {
+        icon: "magnifying-glass-menu",
+        title: "Code search",
+        subtitle: input.query,
+      }
     case "task":
       return {
         icon: "task",
         title: `${input.subagent_type || "task"} Agent`,
         subtitle: input.description,
+      }
+    case "batch":
+      return {
+        icon: "dot-grid",
+        title: "Batch",
       }
     case "bash":
       return {
@@ -221,6 +238,29 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
         icon: "code-lines",
         title: "Edit",
         subtitle: input.filePath ? getFilename(input.filePath) : undefined,
+      }
+    case "multiedit":
+      return {
+        icon: "pencil-line",
+        title: "Multi-edit",
+        subtitle: input.filePath ? getFilename(input.filePath) : undefined,
+      }
+    case "patch":
+      return {
+        icon: "code-lines",
+        title: "Patch",
+      }
+    case "lsp":
+      return {
+        icon: "magnifying-glass-menu",
+        title: "LSP",
+        subtitle: input.operation,
+      }
+    case "skill":
+      return {
+        icon: "brain",
+        title: "Skill",
+        subtitle: input.name,
       }
     case "write":
       return {
@@ -237,6 +277,16 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
       return {
         icon: "checklist",
         title: "Read to-dos",
+      }
+    case "question":
+      return {
+        icon: "speech-bubble",
+        title: "Question",
+      }
+    case "invalid":
+      return {
+        icon: "circle-ban-sign",
+        title: "Invalid tool",
       }
     default:
       return {
@@ -433,6 +483,9 @@ export interface ToolProps {
   input: Record<string, any>
   metadata: Record<string, any>
   tool: string
+  callID?: string
+  messageID?: string
+  sessionID?: string
   output?: string
   status?: string
   hideDetails?: boolean
@@ -544,6 +597,9 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
             input={input()}
             tool={part.tool}
             metadata={metadata()}
+            callID={part.callID}
+            messageID={props.message.id}
+            sessionID={props.message.sessionID}
             // @ts-expect-error
             output={part.state.output}
             status={part.state.status}
@@ -1037,6 +1093,324 @@ ToolRegistry.register({
               )}
             </For>
           </div>
+        </Show>
+      </BasicTool>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "todoread",
+  render(props) {
+    const todos = createMemo(() => {
+      const meta = props.metadata?.todos
+      if (Array.isArray(meta)) return meta
+
+      return []
+    })
+
+    const subtitle = createMemo(() => {
+      const list = todos()
+      if (list.length === 0) return ""
+      return `${list.filter((t: Todo) => t.status === "completed").length}/${list.length}`
+    })
+
+    return (
+      <BasicTool
+        {...props}
+        defaultOpen
+        icon="checklist"
+        trigger={{
+          title: "To-dos",
+          subtitle: subtitle(),
+        }}
+      >
+        <Show when={todos().length}>
+          <div data-component="todos">
+            <For each={todos()}>
+              {(todo: Todo) => (
+                <Checkbox readOnly checked={todo.status === "completed"}>
+                  <div data-slot="message-part-todo-content" data-completed={todo.status === "completed"}>
+                    {todo.content}
+                  </div>
+                </Checkbox>
+              )}
+            </For>
+          </div>
+        </Show>
+        <Show when={!todos().length && props.output}>
+          {(output) => (
+            <div data-component="tool-output" data-scrollable>
+              <Markdown text={output()} />
+            </div>
+          )}
+        </Show>
+      </BasicTool>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "patch",
+  render(props) {
+    const diff = createMemo(() => (typeof props.metadata?.diff === "string" ? props.metadata.diff.trim() : ""))
+    const lineCount = createMemo(() => {
+      const text = props.input?.patchText
+      if (typeof text !== "string" || !text.trim()) return undefined
+      return text.split("\n").length
+    })
+
+    return (
+      <BasicTool
+        {...props}
+        icon="code-lines"
+        trigger={{
+          title: "Patch",
+          subtitle: lineCount() ? `${lineCount()} lines` : undefined,
+        }}
+      >
+        <Show when={props.output}>
+          {(output) => (
+            <div data-component="tool-output" data-scrollable>
+              <Markdown text={output()} />
+            </div>
+          )}
+        </Show>
+        <Show when={diff()}>
+          {(output) => (
+            <div data-component="tool-output" data-scrollable>
+              <Markdown text={`\`\`\`diff\n${output()}\n\`\`\``} />
+            </div>
+          )}
+        </Show>
+      </BasicTool>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "multiedit",
+  render(props) {
+    const diffComponent = useDiffComponent()
+    const results = createMemo(() => (Array.isArray(props.metadata?.results) ? props.metadata.results : []))
+    const editCount = createMemo(() => (Array.isArray(props.input?.edits) ? props.input.edits.length : 0))
+    const subtitle = createMemo(() => (props.input?.filePath ? getFilename(props.input.filePath) : ""))
+
+    return (
+      <BasicTool
+        {...props}
+        icon="pencil-line"
+        trigger={{
+          title: "Multi-edit",
+          subtitle: subtitle(),
+          args: editCount() ? [`${editCount()} edits`] : [],
+        }}
+      >
+        <Show when={props.output}>
+          {(output) => (
+            <div data-component="tool-output" data-scrollable>
+              <Markdown text={output()} />
+            </div>
+          )}
+        </Show>
+        <Show when={results().length > 0}>
+          <div data-component="edit-content">
+            <For each={results()}>
+              {(result) => {
+                const filediff = result?.filediff
+                if (!filediff) return null
+                return (
+                  <Dynamic
+                    component={diffComponent}
+                    before={{
+                      name: filediff.file,
+                      contents: filediff.before,
+                    }}
+                    after={{
+                      name: filediff.file,
+                      contents: filediff.after,
+                    }}
+                  />
+                )
+              }}
+            </For>
+          </div>
+        </Show>
+      </BasicTool>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "batch",
+  render(props) {
+    const calls = createMemo(() => (Array.isArray(props.input?.tool_calls) ? props.input.tool_calls : []))
+    const details = createMemo(() => (Array.isArray(props.metadata?.details) ? props.metadata.details : []))
+
+    return (
+      <BasicTool
+        {...props}
+        icon="dot-grid"
+        trigger={{
+          title: "Batch",
+          subtitle: calls().length ? `${calls().length} calls` : undefined,
+        }}
+      >
+        <Show when={props.output}>
+          {(output) => (
+            <div data-component="tool-output" data-scrollable>
+              <Markdown text={output()} />
+            </div>
+          )}
+        </Show>
+        <Show when={calls().length}>
+          <div data-component="tool-output" data-scrollable class="flex flex-col gap-1">
+            <For each={calls()}>
+              {(call, index) => {
+                const detail = details()[index()]
+                const status =
+                  detail?.success === true ? "ok" : detail?.success === false ? "failed" : "pending"
+                return (
+                  <div class="flex items-center gap-2 text-12-regular text-text-base">
+                    <span class="text-text-weak">{index() + 1}.</span>
+                    <span class="text-text-strong">{call.tool}</span>
+                    <span class="text-11-regular text-text-weak">{status}</span>
+                  </div>
+                )
+              }}
+            </For>
+          </div>
+        </Show>
+      </BasicTool>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "lsp",
+  render(props) {
+    const location = createMemo(() => {
+      const filePath = props.input?.filePath
+      const line = props.input?.line
+      const character = props.input?.character
+      if (!filePath || !line || !character) return ""
+      return `${getFilename(filePath)}:${line}:${character}`
+    })
+    const subtitle = createMemo(() =>
+      [props.input?.operation, location()].filter((item) => item && `${item}`.length > 0).join(" "),
+    )
+
+    return (
+      <BasicTool
+        {...props}
+        icon="magnifying-glass-menu"
+        trigger={{
+          title: "LSP",
+          subtitle: subtitle() || undefined,
+        }}
+      >
+        <Show when={props.output}>
+          {(output) => (
+            <div data-component="tool-output" data-scrollable>
+              <Markdown text={`\`\`\`json\n${output()}\n\`\`\``} />
+            </div>
+          )}
+        </Show>
+      </BasicTool>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "skill",
+  render(props) {
+    const name = () => props.metadata?.name || props.input?.name
+    return (
+      <BasicTool
+        {...props}
+        icon="brain"
+        trigger={{
+          title: "Skill",
+          subtitle: name(),
+        }}
+      >
+        <Show when={props.output}>
+          {(output) => (
+            <div data-component="tool-output" data-scrollable>
+              <Markdown text={output()} />
+            </div>
+          )}
+        </Show>
+      </BasicTool>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "websearch",
+  render(props) {
+    return (
+      <BasicTool
+        {...props}
+        icon="window-cursor"
+        trigger={{
+          title: "Web search",
+          subtitle: props.input?.query,
+        }}
+      >
+        <Show when={props.output}>
+          {(output) => (
+            <div data-component="tool-output" data-scrollable>
+              <Markdown text={output()} />
+            </div>
+          )}
+        </Show>
+      </BasicTool>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "codesearch",
+  render(props) {
+    return (
+      <BasicTool
+        {...props}
+        icon="magnifying-glass-menu"
+        trigger={{
+          title: "Code search",
+          subtitle: props.input?.query,
+        }}
+      >
+        <Show when={props.output}>
+          {(output) => (
+            <div data-component="tool-output" data-scrollable>
+              <Markdown text={output()} />
+            </div>
+          )}
+        </Show>
+      </BasicTool>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "invalid",
+  render(props) {
+    return (
+      <BasicTool
+        {...props}
+        icon="circle-ban-sign"
+        trigger={{
+          title: "Invalid tool",
+        }}
+      >
+        <Show when={props.output}>
+          {(output) => (
+            <div data-component="tool-output" data-scrollable>
+              <Markdown text={output()} />
+            </div>
+          )}
         </Show>
       </BasicTool>
     )

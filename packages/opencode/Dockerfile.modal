@@ -1,0 +1,11 @@
+FROM python:3.11-slim
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git ca-certificates curl bash \
+  && rm -rf /var/lib/apt/lists/*
+
+ARG OPENCODE_BIN=dist/opencode-linux-x64/bin/opencode
+COPY ${OPENCODE_BIN} /usr/local/bin/opencode
+RUN chmod +x /usr/local/bin/opencode && opencode --version
+
+ENTRYPOINT ["opencode"]

@@ -12,6 +12,7 @@ import { Workspace } from "@opencode-ai/console-core/workspace.js"
 import { Actor } from "@opencode-ai/console-core/actor.js"
 import { Resource } from "@opencode-ai/console-resource"
 import { User } from "@opencode-ai/console-core/user.js"
+import { GithubToken } from "@opencode-ai/console-core/github-token.js"
 import { and, Database, eq, isNull, or } from "@opencode-ai/console-core/drizzle/index.js"
 import { WorkspaceTable } from "@opencode-ai/console-core/schema/workspace.sql.js"
 import { UserTable } from "@opencode-ai/console-core/schema/user.sql.js"
@@ -20,6 +21,57 @@ import { Identifier } from "@opencode-ai/console-core/identifier.js"
 
 type Env = {
   AuthStorage: KVNamespace
+}
+
+type StorageAdapter = {
+  get(key: string[]): Promise<Record<string, any> | undefined>
+  remove(key: string[]): Promise<void>
+  set(key: string[], value: any, expiry?: Date): Promise<void>
+  scan(prefix: string[]): AsyncIterable<[string[], any]>
+}
+
+const KEY_PREFIXES = new Set(["signing:key", "encryption:key"])
+
+const createAuthStorage = (namespace: KVNamespace): StorageAdapter => {
+  const base = CloudflareStorage({ namespace })
+  const currentCache = new Map<string, Record<string, any>>()
+
+  const getCurrent = async (prefix: string) => {
+    const cached = currentCache.get(prefix)
+    if (cached) return cached
+    const stored = (await base.get([prefix, "current"])) as Record<string, any> | undefined
+    if (stored) currentCache.set(prefix, stored)
+    return stored
+  }
+
+  const setCurrent = async (prefix: string, value: Record<string, any>) => {
+    currentCache.set(prefix, value)
+    await base.set([prefix, "current"], value)
+  }
+
+  return {
+    get: base.get,
+    remove: base.remove,
+    async set(key, value, expiry) {
+      await base.set(key, value, expiry)
+      if (KEY_PREFIXES.has(key[0]) && key[1] !== "current") {
+        await setCurrent(key[0], value)
+      }
+    },
+    async *scan(prefix) {
+      if (KEY_PREFIXES.has(prefix[0])) {
+        const current = await getCurrent(prefix[0])
+        if (current) {
+          const id = typeof current.id === "string" ? current.id : "current"
+          yield [[prefix[0], id], current]
+        }
+        return
+      }
+      for await (const item of base.scan(prefix)) {
+        yield item
+      }
+    },
+  }
 }
 
 export const subjects = createSubjects({
@@ -46,7 +98,7 @@ export default {
         github: GithubProvider({
           clientID: Resource.GITHUB_CLIENT_ID_CONSOLE.value,
           clientSecret: Resource.GITHUB_CLIENT_SECRET_CONSOLE.value,
-          scopes: ["read:user", "user:email"],
+          scopes: ["read:user", "user:email", "repo"],
         }),
         google: GoogleOidcProvider({
           clientID: Resource.GOOGLE_CLIENT_ID.value,
@@ -96,10 +148,7 @@ export default {
         //          },
         //        }),
       },
-      storage: CloudflareStorage({
-        // @ts-ignore
-        namespace: env.AuthStorage,
-      }),
+      storage: createAuthStorage(env.AuthStorage),
       subjects,
       async success(ctx, response) {
         console.log(response)
@@ -136,10 +185,6 @@ export default {
 
         if (!email) throw new Error("No email found")
         if (!subject) throw new Error("No subject found")
-
-        if (Resource.App.stage !== "production" && !email.endsWith("@anoma.ly")) {
-          throw new Error("Invalid email")
-        }
 
         // Get account
         const accountID = await (async () => {
@@ -185,7 +230,8 @@ export default {
                   subject: email,
                 },
               ])
-              .onDuplicateKeyUpdate({
+              .onConflictDoUpdate({
+                target: [AuthTable.provider, AuthTable.subject],
                 set: {
                   timeDeleted: null,
                 },
@@ -194,6 +240,15 @@ export default {
 
           return accountID
         })()
+
+        if (response.provider === "github") {
+          const accessToken = response.tokenset.access
+          if (typeof accessToken === "string" && accessToken.length > 0) {
+            const scope = typeof response.tokenset.scope === "string" ? response.tokenset.scope : undefined
+            const tokenType = typeof response.tokenset.token_type === "string" ? response.tokenset.token_type : undefined
+            await GithubToken.upsert({ accountID, accessToken, scope, tokenType })
+          }
+        }
 
         // Get workspace
         await Actor.provide("account", { accountID, email }, async () => {

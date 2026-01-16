@@ -41,6 +41,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { DialogSelectModelUnpaid } from "@/components/dialog-select-model-unpaid"
+import { DialogInspectRepo } from "@/components/dialog-inspect-repo"
 import { useProviders } from "@/hooks/use-providers"
 import { useCommand } from "@/context/command"
 import { Persist, persisted } from "@/utils/persist"
@@ -49,6 +50,8 @@ import { SessionContextUsage } from "@/components/session-context-usage"
 import { usePermission } from "@/context/permission"
 import { useGlobalSync } from "@/context/global-sync"
 import { usePlatform } from "@/context/platform"
+import { useServer } from "@/context/server"
+import { useInspectRepo, type InspectRepo } from "@/context/inspect-repo"
 import { createOpencodeClient, type Message, type Part } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "@opencode-ai/util/binary"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -107,6 +110,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const sync = useSync()
   const globalSync = useGlobalSync()
   const platform = usePlatform()
+  const server = useServer()
   const local = useLocal()
   const files = useFile()
   const prompt = usePrompt()
@@ -120,6 +124,49 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   let fileInputRef!: HTMLInputElement
   let scrollRef!: HTMLDivElement
   let slashPopoverRef!: HTMLDivElement
+
+  const inspectApiUrl = () => import.meta.env.VITE_INSPECT_API_URL?.replace(/\/+$/, "")
+  const inspectSandboxProvider = () => import.meta.env.VITE_INSPECT_SANDBOX_PROVIDER ?? "modal"
+  const inspectModel = () => import.meta.env.VITE_INSPECT_MODEL
+  const inspectRepo = useInspectRepo()
+
+  const parseModel = (input?: string) => {
+    if (!input) return undefined
+    const [providerID, ...rest] = input.split("/")
+    if (!providerID || rest.length === 0) return undefined
+    return { providerID, modelID: rest.join("/") }
+  }
+
+  const currentInspectRepo = createMemo(() => inspectRepo.current())
+
+  const [inspectSandboxes, setInspectSandboxes] = persisted(
+    Persist.global("inspect-sandboxes", ["inspect-sandboxes.v1"]),
+    createStore({
+      urls: [] as string[],
+    }),
+  )
+
+  const registerInspectSandbox = (url: string) => {
+    setInspectSandboxes("urls", (prev) => {
+      const next = [url, ...prev.filter((item) => item !== url)]
+      return next.slice(0, 50)
+    })
+  }
+
+  const inspectEnabled = createMemo(() => !!inspectApiUrl())
+  const isInspectSandbox = createMemo(() => {
+    if (!inspectEnabled()) return false
+    const url = server.url
+    if (!url) return false
+    return inspectSandboxes.urls.includes(url)
+  })
+  const needsInspectSession = createMemo(() => {
+    if (!inspectEnabled()) return false
+    if (params.id) return false
+    const url = server.url
+    if (!url) return false
+    return url === inspectApiUrl() || isInspectSandbox()
+  })
 
   const scrollCursorIntoView = () => {
     const container = scrollRef
@@ -188,6 +235,37 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     applyingHistory: false,
   })
 
+  type InspectSession = {
+    sandboxUrl: string
+    sessionID?: string
+    worktree: string
+    repo: InspectRepo
+  }
+
+  const [inspectSession, setInspectSession] = createSignal<InspectSession | null>(null)
+  const [inspectPromise, setInspectPromise] = createSignal<Promise<InspectSession> | null>(null)
+  const [inspectWarmupStarted, setInspectWarmupStarted] = createSignal(false)
+
+  const resetInspectBootstrap = () => {
+    setInspectSession(null)
+    setInspectPromise(null)
+    setInspectWarmupStarted(false)
+  }
+
+  const [inspectPending, setInspectPending] = persisted(
+    Persist.global("inspect-pending-prompt", ["inspect-pending-prompt.v1"]),
+    createStore<{
+      item: {
+        parts: Prompt
+        mode: "normal" | "shell"
+        sessionID: string
+        createdAt: number
+      } | null
+    }>({
+      item: null,
+    }),
+  )
+
   const MAX_HISTORY = 100
   const [history, setHistory] = persisted(
     Persist.global("prompt-history", ["prompt-history.v1"]),
@@ -219,6 +297,95 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
   const promptLength = (prompt: Prompt) =>
     prompt.reduce((len, part) => len + ("content" in part ? part.content.length : 0), 0)
+
+  const startInspectSession = async (source: "warmup" | "submit") => {
+    if (!needsInspectSession()) return null
+
+    const existing = inspectSession()
+    if (existing) return existing
+    const inflight = inspectPromise()
+    if (inflight) return inflight
+
+    const apiUrl = inspectApiUrl()
+    const repo = currentInspectRepo()
+    if (!apiUrl || !repo) {
+      if (source === "submit") {
+        showToast({
+          title: "Inspect repo missing",
+          description: "Add a repository before starting a new Inspect session.",
+        })
+        if (!repo) {
+          dialog.show(() => <DialogInspectRepo />)
+        }
+      }
+      return null
+    }
+
+    const payload = {
+      repo: {
+        url: repo.url,
+        ...(repo.ref ? { ref: repo.ref } : {}),
+      },
+      model: parseModel(inspectModel()),
+      sandbox: { provider: inspectSandboxProvider() },
+    }
+
+    const promise = (async () => {
+      const response = await (platform.fetch ?? fetch)(`${apiUrl}/session`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "")
+        throw new Error(detail || response.statusText)
+      }
+      const data = await response.json()
+      const sandboxUrl = data?.sandbox?.url as string | undefined
+      const sessionID = data?.opencode?.sessionID as string | undefined
+      if (!sandboxUrl) {
+        throw new Error("Sandbox URL not returned")
+      }
+      registerInspectSandbox(sandboxUrl)
+
+      let worktree = "/work/repo"
+      try {
+        const projectResponse = await (platform.fetch ?? fetch)(`${sandboxUrl}/project/current`)
+        if (projectResponse.ok) {
+          const project = await projectResponse.json()
+          if (typeof project?.worktree === "string" && project.worktree.trim()) {
+            worktree = project.worktree
+          }
+        }
+      } catch {}
+
+      const result: InspectSession = { sandboxUrl, sessionID, worktree, repo }
+      setInspectSession(result)
+      return result
+    })()
+
+    setInspectPromise(promise)
+
+    try {
+      return await promise
+    } catch (err) {
+      setInspectPromise(null)
+      if (source === "submit") {
+        const message = err instanceof Error ? err.message : "Failed to start sandbox"
+        showToast({ title: "Sandbox start failed", description: message })
+      }
+      throw err
+    }
+  }
+
+  const triggerInspectWarmup = () => {
+    if (!needsInspectSession()) return
+    if (inspectWarmupStarted()) return
+    setInspectWarmupStarted(true)
+    void startInspectSession("warmup").catch(() => {
+      setInspectWarmupStarted(false)
+    })
+  }
 
   const applyHistoryPrompt = (p: Prompt, position: "start" | "end") => {
     const length = position === "start" ? 0 : promptLength(p)
@@ -681,6 +848,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     }
 
     prompt.set([...rawParts, ...images], cursorPosition)
+    if (trimmed.length > 0 || images.length > 0) {
+      triggerInspectWarmup()
+    }
     queueScroll()
   }
 
@@ -991,6 +1161,37 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       return "Request failed"
     }
 
+    const shouldDeferInspect = needsInspectSession() && !params.id
+    if (shouldDeferInspect) {
+      const pendingParts = clonePromptParts(currentPrompt)
+      const result = await startInspectSession("submit").catch(() => null)
+      if (!result) return
+      if (!result.sessionID) {
+        showToast({
+          title: "Sandbox start failed",
+          description: "Session ID not returned from sandbox.",
+        })
+        return
+      }
+
+      setInspectPending("item", {
+        parts: pendingParts,
+        mode,
+        sessionID: result.sessionID,
+        createdAt: Date.now(),
+      })
+
+      prompt.reset()
+      setStore("mode", "normal")
+      setStore("popover", null)
+
+      server.add(result.sandboxUrl)
+      const encoded = base64Encode(result.worktree)
+      navigate(`/${encoded}/session/${result.sessionID}`)
+      resetInspectBootstrap()
+      return
+    }
+
     addToHistory(currentPrompt, mode)
     setStore("historyIndex", -1)
     setStore("savedPrompt", null)
@@ -1292,6 +1493,24 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       })
   }
 
+  createEffect(() => {
+    const pending = inspectPending.item
+    if (!pending) return
+    if (!params.id || pending.sessionID !== params.id) return
+    if (!prompt.ready()) return
+    if (prompt.dirty()) return
+    if (!local.model.current() || !local.agent.current()) return
+    if (working()) return
+
+    setInspectPending("item", null)
+    const parts = clonePromptParts(pending.parts)
+    prompt.set(parts, promptLength(parts))
+    setStore("mode", pending.mode)
+    requestAnimationFrame(() => {
+      handleSubmit(new Event("submit"))
+    })
+  })
+
   return (
     <div class="relative size-full _max-h-[320px] flex flex-col gap-3">
       <Show when={store.popover}>
@@ -1546,6 +1765,35 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 </div>
               </Match>
               <Match when={store.mode === "normal"}>
+                <Show when={inspectEnabled() && needsInspectSession()}>
+                  <Switch>
+                    <Match when={inspectRepo.repos().length > 0}>
+                      <Select
+                        options={inspectRepo.repos()}
+                        current={currentInspectRepo()}
+                        value={(repo) => repo.id}
+                        label={(repo) => repo.name}
+                        onSelect={(repo) => {
+                          if (!repo) return
+                          inspectRepo.selectRepo(repo.id)
+                        }}
+                        size="normal"
+                        variant="ghost"
+                        class="text-12-medium"
+                      />
+                    </Match>
+                    <Match when={true}>
+                      <Button
+                        variant="ghost"
+                        size="normal"
+                        icon="plus-small"
+                        onClick={() => dialog.show(() => <DialogInspectRepo />)}
+                      >
+                        Add repo
+                      </Button>
+                    </Match>
+                  </Switch>
+                </Show>
                 <TooltipKeybind placement="top" title="Cycle agent" keybind={command.keybind("agent.cycle")}>
                   <Select
                     options={local.agent.list().map((agent) => agent.name)}

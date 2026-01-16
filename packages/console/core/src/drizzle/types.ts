@@ -1,7 +1,6 @@
-import { sql } from "drizzle-orm"
-import { bigint, timestamp, varchar } from "drizzle-orm/mysql-core"
+import { integer, text } from "drizzle-orm/sqlite-core"
 
-export const ulid = (name: string) => varchar(name, { length: 30 })
+export const ulid = (name: string) => text(name, { length: 30 })
 
 export const workspaceColumns = {
   get id() {
@@ -14,20 +13,12 @@ export const workspaceColumns = {
 
 export const id = () => ulid("id").notNull()
 
-export const utc = (name: string) =>
-  timestamp(name, {
-    fsp: 3,
-  })
+export const utc = (name: string) => integer(name, { mode: "timestamp_ms" })
 
-export const currency = (name: string) =>
-  bigint(name, {
-    mode: "number",
-  })
+export const currency = (name: string) => integer(name)
 
 export const timestamps = {
   timeCreated: utc("time_created").notNull().defaultNow(),
-  timeUpdated: utc("time_updated")
-    .notNull()
-    .default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`),
+  timeUpdated: utc("time_updated").notNull().defaultNow().$onUpdate(() => new Date()),
   timeDeleted: utc("time_deleted"),
 }

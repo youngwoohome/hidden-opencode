@@ -67,16 +67,23 @@ export namespace ZenData {
   })
 
   export const list = fn(z.void(), () => {
-    const json = JSON.parse(
-      Resource.ZEN_MODELS1.value +
-        Resource.ZEN_MODELS2.value +
-        Resource.ZEN_MODELS3.value +
-        Resource.ZEN_MODELS4.value +
-        Resource.ZEN_MODELS5.value +
-        Resource.ZEN_MODELS6.value +
-        Resource.ZEN_MODELS7.value,
-    )
-    return ModelsSchema.parse(json)
+    try {
+      const json = JSON.parse(
+        Resource.ZEN_MODELS1.value +
+          Resource.ZEN_MODELS2.value +
+          Resource.ZEN_MODELS3.value +
+          Resource.ZEN_MODELS4.value +
+          Resource.ZEN_MODELS5.value +
+          Resource.ZEN_MODELS6.value +
+          Resource.ZEN_MODELS7.value,
+      )
+      return ModelsSchema.parse(json)
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("ZEN_MODELS")) {
+        return ModelsSchema.parse({ models: {}, providers: {} })
+      }
+      throw err
+    }
   })
 }
 
@@ -98,7 +105,8 @@ export namespace Model {
           workspaceID: Actor.workspace(),
           model: model,
         })
-        .onDuplicateKeyUpdate({
+        .onConflictDoUpdate({
+          target: [ModelTable.workspaceID, ModelTable.model],
           set: {
             timeDeleted: null,
           },

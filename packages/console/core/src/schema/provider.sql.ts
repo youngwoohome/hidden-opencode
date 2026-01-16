@@ -1,13 +1,13 @@
-import { mysqlTable, text, uniqueIndex, varchar } from "drizzle-orm/mysql-core"
+import { sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 import { timestamps, workspaceColumns } from "../drizzle/types"
 import { workspaceIndexes } from "./workspace.sql"
 
-export const ProviderTable = mysqlTable(
+export const ProviderTable = sqliteTable(
   "provider",
   {
     ...workspaceColumns,
     ...timestamps,
-    provider: varchar("provider", { length: 64 }).notNull(),
+    provider: text("provider", { length: 64 }).notNull(),
     credentials: text("credentials").notNull(),
   },
   (table) => [...workspaceIndexes(table), uniqueIndex("workspace_provider").on(table.workspaceID, table.provider)],

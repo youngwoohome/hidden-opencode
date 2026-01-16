@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { and, eq, getTableColumns, isNull, sql } from "drizzle-orm"
+import { and, eq, getTableColumns, isNull } from "drizzle-orm"
 import { fn } from "./util/fn"
 import { Database } from "./drizzle"
 import { UserRole, UserTable } from "./schema/user.sql"
@@ -74,6 +74,10 @@ export namespace User {
           .where(and(eq(AuthTable.provider, "email"), eq(AuthTable.subject, email)))
           .then((rows) => rows[0]?.accountID),
       )
+      const conflictTarget = accountID
+        ? [UserTable.workspaceID, UserTable.accountID]
+        : [UserTable.workspaceID, UserTable.email]
+
       await Database.use((tx) =>
         tx
           .insert(UserTable)
@@ -91,7 +95,8 @@ export namespace User {
             role,
             monthlyLimit,
           })
-          .onDuplicateKeyUpdate({
+          .onConflictDoUpdate({
+            target: conflictTarget,
             set: {
               role,
               monthlyLimit,
@@ -218,7 +223,7 @@ export namespace User {
       tx
         .update(UserTable)
         .set({
-          timeDeleted: sql`now()`,
+          timeDeleted: new Date(),
         })
         .where(and(eq(UserTable.id, id), eq(UserTable.workspaceID, Actor.workspace()))),
     )

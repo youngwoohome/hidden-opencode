@@ -1,28 +1,28 @@
-import { bigint, boolean, index, int, json, mysqlTable, uniqueIndex, varchar } from "drizzle-orm/mysql-core"
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 import { timestamps, ulid, utc, workspaceColumns } from "../drizzle/types"
 import { workspaceIndexes } from "./workspace.sql"
 
-export const BillingTable = mysqlTable(
+export const BillingTable = sqliteTable(
   "billing",
   {
     ...workspaceColumns,
     ...timestamps,
-    customerID: varchar("customer_id", { length: 255 }),
-    paymentMethodID: varchar("payment_method_id", { length: 255 }),
-    paymentMethodType: varchar("payment_method_type", { length: 32 }),
-    paymentMethodLast4: varchar("payment_method_last4", { length: 4 }),
-    balance: bigint("balance", { mode: "number" }).notNull(),
-    monthlyLimit: int("monthly_limit"),
-    monthlyUsage: bigint("monthly_usage", { mode: "number" }),
+    customerID: text("customer_id", { length: 255 }),
+    paymentMethodID: text("payment_method_id", { length: 255 }),
+    paymentMethodType: text("payment_method_type", { length: 32 }),
+    paymentMethodLast4: text("payment_method_last4", { length: 4 }),
+    balance: integer("balance").notNull(),
+    monthlyLimit: integer("monthly_limit"),
+    monthlyUsage: integer("monthly_usage"),
     timeMonthlyUsageUpdated: utc("time_monthly_usage_updated"),
-    reload: boolean("reload"),
-    reloadTrigger: int("reload_trigger"),
-    reloadAmount: int("reload_amount"),
-    reloadError: varchar("reload_error", { length: 255 }),
+    reload: integer("reload", { mode: "boolean" }),
+    reloadTrigger: integer("reload_trigger"),
+    reloadAmount: integer("reload_amount"),
+    reloadError: text("reload_error", { length: 255 }),
     timeReloadError: utc("time_reload_error"),
     timeReloadLockedTill: utc("time_reload_locked_till"),
-    subscriptionID: varchar("subscription_id", { length: 28 }),
-    subscriptionCouponID: varchar("subscription_coupon_id", { length: 28 }),
+    subscriptionID: text("subscription_id", { length: 28 }),
+    subscriptionCouponID: text("subscription_coupon_id", { length: 28 }),
   },
   (table) => [
     ...workspaceIndexes(table),
@@ -31,31 +31,31 @@ export const BillingTable = mysqlTable(
   ],
 )
 
-export const SubscriptionTable = mysqlTable(
+export const SubscriptionTable = sqliteTable(
   "subscription",
   {
     ...workspaceColumns,
     ...timestamps,
     userID: ulid("user_id").notNull(),
-    rollingUsage: bigint("rolling_usage", { mode: "number" }),
-    fixedUsage: bigint("fixed_usage", { mode: "number" }),
+    rollingUsage: integer("rolling_usage"),
+    fixedUsage: integer("fixed_usage"),
     timeRollingUpdated: utc("time_rolling_updated"),
     timeFixedUpdated: utc("time_fixed_updated"),
   },
   (table) => [...workspaceIndexes(table), uniqueIndex("workspace_user_id").on(table.workspaceID, table.userID)],
 )
 
-export const PaymentTable = mysqlTable(
+export const PaymentTable = sqliteTable(
   "payment",
   {
     ...workspaceColumns,
     ...timestamps,
-    customerID: varchar("customer_id", { length: 255 }),
-    invoiceID: varchar("invoice_id", { length: 255 }),
-    paymentID: varchar("payment_id", { length: 255 }),
-    amount: bigint("amount", { mode: "number" }).notNull(),
+    customerID: text("customer_id", { length: 255 }),
+    invoiceID: text("invoice_id", { length: 255 }),
+    paymentID: text("payment_id", { length: 255 }),
+    amount: integer("amount").notNull(),
     timeRefunded: utc("time_refunded"),
-    enrichment: json("enrichment").$type<
+    enrichment: text("enrichment", { mode: "json" }).$type<
       | {
           type: "subscription"
           couponID?: string
@@ -68,22 +68,22 @@ export const PaymentTable = mysqlTable(
   (table) => [...workspaceIndexes(table)],
 )
 
-export const UsageTable = mysqlTable(
+export const UsageTable = sqliteTable(
   "usage",
   {
     ...workspaceColumns,
     ...timestamps,
-    model: varchar("model", { length: 255 }).notNull(),
-    provider: varchar("provider", { length: 255 }).notNull(),
-    inputTokens: int("input_tokens").notNull(),
-    outputTokens: int("output_tokens").notNull(),
-    reasoningTokens: int("reasoning_tokens"),
-    cacheReadTokens: int("cache_read_tokens"),
-    cacheWrite5mTokens: int("cache_write_5m_tokens"),
-    cacheWrite1hTokens: int("cache_write_1h_tokens"),
-    cost: bigint("cost", { mode: "number" }).notNull(),
+    model: text("model", { length: 255 }).notNull(),
+    provider: text("provider", { length: 255 }).notNull(),
+    inputTokens: integer("input_tokens").notNull(),
+    outputTokens: integer("output_tokens").notNull(),
+    reasoningTokens: integer("reasoning_tokens"),
+    cacheReadTokens: integer("cache_read_tokens"),
+    cacheWrite5mTokens: integer("cache_write_5m_tokens"),
+    cacheWrite1hTokens: integer("cache_write_1h_tokens"),
+    cost: integer("cost").notNull(),
     keyID: ulid("key_id"),
-    enrichment: json("enrichment").$type<{
+    enrichment: text("enrichment", { mode: "json" }).$type<{
       plan: "sub"
     }>(),
   },

@@ -13,11 +13,13 @@ import { GlobalSyncProvider } from "@/context/global-sync"
 import { PermissionProvider } from "@/context/permission"
 import { LayoutProvider } from "@/context/layout"
 import { GlobalSDKProvider } from "@/context/global-sdk"
+import "@/tools/question"
 import { ServerProvider, useServer } from "@/context/server"
 import { TerminalProvider } from "@/context/terminal"
 import { PromptProvider } from "@/context/prompt"
 import { FileProvider } from "@/context/file"
 import { NotificationProvider } from "@/context/notification"
+import { InspectRepoProvider } from "@/context/inspect-repo"
 import { DialogProvider } from "@opencode-ai/ui/context/dialog"
 import { CommandProvider } from "@/context/command"
 import { Logo } from "@opencode-ai/ui/logo"
@@ -68,6 +70,7 @@ function ServerKey(props: ParentProps) {
 export function AppInterface(props: { defaultUrl?: string }) {
   const defaultServerUrl = () => {
     if (props.defaultUrl) return props.defaultUrl
+    if (import.meta.env.VITE_INSPECT_API_URL) return import.meta.env.VITE_INSPECT_API_URL
     if (location.hostname.includes("opencode.ai")) return "http://localhost:4096"
     if (import.meta.env.DEV)
       return `http://${import.meta.env.VITE_OPENCODE_SERVER_HOST ?? "localhost"}:${import.meta.env.VITE_OPENCODE_SERVER_PORT ?? "4096"}`
@@ -84,11 +87,13 @@ export function AppInterface(props: { defaultUrl?: string }) {
               root={(props) => (
                 <PermissionProvider>
                   <LayoutProvider>
-                    <NotificationProvider>
-                      <CommandProvider>
-                        <Layout>{props.children}</Layout>
-                      </CommandProvider>
-                    </NotificationProvider>
+                    <InspectRepoProvider>
+                      <NotificationProvider>
+                        <CommandProvider>
+                          <Layout>{props.children}</Layout>
+                        </CommandProvider>
+                      </NotificationProvider>
+                    </InspectRepoProvider>
                   </LayoutProvider>
                 </PermissionProvider>
               )}
