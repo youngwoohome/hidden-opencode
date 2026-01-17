@@ -5,6 +5,7 @@ import { Component, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { usePlatform } from "@/context/platform"
 import { Icon } from "@opencode-ai/ui/icon"
+import { Persist, removePersisted } from "@/utils/persist"
 
 export type InitError = {
   name: string
@@ -187,6 +188,18 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
     version: undefined as string | undefined,
   })
 
+  const isServerConnectError = () =>
+    props.error instanceof Error && props.error.message.includes("Could not connect to server")
+
+  async function resetServerSettings() {
+    // Remove the persisted server selection so we fall back to the default server.
+    removePersisted(Persist.global("server", ["server.v3"]))
+    try {
+      localStorage.removeItem("server.v3")
+    } catch {}
+    await platform.restart()
+  }
+
   async function checkForUpdates() {
     if (!platform.checkUpdate) return
     setStore("checking", true)
@@ -222,6 +235,11 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
           <Button size="large" onClick={platform.restart}>
             Restart
           </Button>
+          <Show when={isServerConnectError()}>
+            <Button size="large" variant="secondary" onClick={resetServerSettings}>
+              Reset server settings
+            </Button>
+          </Show>
           <Show when={platform.checkUpdate}>
             <Show
               when={store.version}

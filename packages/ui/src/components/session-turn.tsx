@@ -328,8 +328,18 @@ export function SessionTurn(
 
   const response = createMemo(() => lastTextPart()?.text)
   const responsePartId = createMemo(() => lastTextPart()?.id)
-  const hasDiffs = createMemo(() => message()?.summary?.diffs?.length)
+  const hasDiffs = createMemo(() => (message()?.summary?.diffs?.length ?? 0) > 0)
   const hideResponsePart = createMemo(() => !working() && !!responsePartId())
+  const hasAssistantContent = createMemo(() => {
+    if (working()) return true
+    if (hasSteps()) return true
+    if (assistantMessages().length > 0) return true
+    if (permissionParts().length > 0) return true
+    if (response()) return true
+    if (hasDiffs()) return true
+    if (error()) return true
+    return false
+  })
 
   const [responseCopied, setResponseCopied] = createSignal(false)
   const handleCopyResponse = async () => {
@@ -480,205 +490,211 @@ export function SessionTurn(
                     <Part part={shellModePart()!} message={msg()} defaultOpen />
                   </Match>
                   <Match when={true}>
-                    {/* Title (sticky) */}
-                    <div ref={(el) => setStore("stickyTitleRef", el)} data-slot="session-turn-sticky-title">
-                      <div data-slot="session-turn-message-header">
-                        <div data-slot="session-turn-message-title">
-                          <Switch>
-                            <Match when={working()}>
-                              <Typewriter as="h1" text={msg().summary?.title} data-slot="session-turn-typewriter" />
-                            </Match>
-                            <Match when={true}>
-                              <h1>{msg().summary?.title}</h1>
-                            </Match>
-                          </Switch>
-                        </div>
-                        <div data-slot="session-turn-user-badges">
-                          <Show when={(msg() as UserMessage).agent}>
-                            <span data-slot="session-turn-badge">{(msg() as UserMessage).agent}</span>
-                          </Show>
-                          <Show when={(msg() as UserMessage).model?.modelID}>
-                            <span data-slot="session-turn-badge">{(msg() as UserMessage).model?.modelID}</span>
-                          </Show>
-                          <span data-slot="session-turn-badge">{(msg() as UserMessage).variant || "default"}</span>
+                    <div data-slot="session-turn-user">
+                      {/* Title (sticky) */}
+                      <div ref={(el) => setStore("stickyTitleRef", el)} data-slot="session-turn-sticky-title">
+                        <div data-slot="session-turn-message-header">
+                          <div data-slot="session-turn-message-title">
+                            <Switch>
+                              <Match when={working()}>
+                                <Typewriter as="h1" text={msg().summary?.title} data-slot="session-turn-typewriter" />
+                              </Match>
+                              <Match when={true}>
+                                <h1>{msg().summary?.title}</h1>
+                              </Match>
+                            </Switch>
+                          </div>
+                          <div data-slot="session-turn-user-badges">
+                            <Show when={(msg() as UserMessage).agent}>
+                              <span data-slot="session-turn-badge">{(msg() as UserMessage).agent}</span>
+                            </Show>
+                            <Show when={(msg() as UserMessage).model?.modelID}>
+                              <span data-slot="session-turn-badge">{(msg() as UserMessage).model?.modelID}</span>
+                            </Show>
+                            <span data-slot="session-turn-badge">{(msg() as UserMessage).variant || "default"}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    {/* User Message */}
-                    <div data-slot="session-turn-message-content">
-                      <Message message={msg()} parts={parts()} />
-                    </div>
-                    {/* Trigger (sticky) */}
-                    <Show when={working() || hasSteps()}>
-                      <div ref={(el) => setStore("stickyTriggerRef", el)} data-slot="session-turn-response-trigger">
-                        <Button
-                          data-expandable={assistantMessages().length > 0}
-                          data-slot="session-turn-collapsible-trigger-content"
-                          variant="ghost"
-                          size="small"
-                          onClick={props.onStepsExpandedToggle ?? (() => {})}
-                        >
-                          <Show when={working()}>
-                            <Spinner />
-                          </Show>
-                          <Switch>
-                            <Match when={retry()}>
-                              <span data-slot="session-turn-retry-message">
-                                {(() => {
-                                  const r = retry()
-                                  if (!r) return ""
-                                  return r.message.length > 60 ? r.message.slice(0, 60) + "..." : r.message
-                                })()}
-                              </span>
-                              <span data-slot="session-turn-retry-seconds">
-                                · retrying {store.retrySeconds > 0 ? `in ${store.retrySeconds}s ` : ""}
-                              </span>
-                              <span data-slot="session-turn-retry-attempt">(#{retry()?.attempt})</span>
-                            </Match>
-                            <Match when={working()}>{store.status ?? "Considering next steps"}</Match>
-                            <Match when={props.stepsExpanded}>Hide steps</Match>
-                            <Match when={!props.stepsExpanded}>Show steps</Match>
-                          </Switch>
-                          <span>·</span>
-                          <span>{store.duration}</span>
-                          <Show when={assistantMessages().length > 0}>
-                            <Icon name="chevron-grabber-vertical" size="small" />
-                          </Show>
-                        </Button>
+                      {/* User Message */}
+                      <div data-slot="session-turn-message-content">
+                        <Message message={msg()} parts={parts()} />
                       </div>
-                    </Show>
-                    {/* Response */}
-                    <Show when={props.stepsExpanded && assistantMessages().length > 0}>
-                      <div data-slot="session-turn-collapsible-content-inner">
-                        <For each={assistantMessages()}>
-                          {(assistantMessage) => (
-                            <AssistantMessageItem
-                              message={assistantMessage}
-                              responsePartId={responsePartId()}
-                              hideResponsePart={hideResponsePart()}
-                              hideReasoning={!working()}
-                            />
-                          )}
-                        </For>
-                        <Show when={error()}>
+                    </div>
+                    <Show when={hasAssistantContent()}>
+                      <div data-slot="session-turn-assistant">
+                        {/* Trigger (sticky) */}
+                        <Show when={working() || hasSteps()}>
+                          <div ref={(el) => setStore("stickyTriggerRef", el)} data-slot="session-turn-response-trigger">
+                            <Button
+                              data-expandable={assistantMessages().length > 0}
+                              data-slot="session-turn-collapsible-trigger-content"
+                              variant="ghost"
+                              size="small"
+                              onClick={props.onStepsExpandedToggle ?? (() => {})}
+                            >
+                              <Show when={working()}>
+                                <Spinner />
+                              </Show>
+                              <Switch>
+                                <Match when={retry()}>
+                                  <span data-slot="session-turn-retry-message">
+                                    {(() => {
+                                      const r = retry()
+                                      if (!r) return ""
+                                      return r.message.length > 60 ? r.message.slice(0, 60) + "..." : r.message
+                                    })()}
+                                  </span>
+                                  <span data-slot="session-turn-retry-seconds">
+                                    · retrying {store.retrySeconds > 0 ? `in ${store.retrySeconds}s ` : ""}
+                                  </span>
+                                  <span data-slot="session-turn-retry-attempt">(#{retry()?.attempt})</span>
+                                </Match>
+                                <Match when={working()}>{store.status ?? "Considering next steps"}</Match>
+                                <Match when={props.stepsExpanded}>Hide steps</Match>
+                                <Match when={!props.stepsExpanded}>Show steps</Match>
+                              </Switch>
+                              <span>·</span>
+                              <span>{store.duration}</span>
+                              <Show when={assistantMessages().length > 0}>
+                                <Icon name="chevron-grabber-vertical" size="small" />
+                              </Show>
+                            </Button>
+                          </div>
+                        </Show>
+                        {/* Response */}
+                        <Show when={props.stepsExpanded && assistantMessages().length > 0}>
+                          <div data-slot="session-turn-collapsible-content-inner">
+                            <For each={assistantMessages()}>
+                              {(assistantMessage) => (
+                                <AssistantMessageItem
+                                  message={assistantMessage}
+                                  responsePartId={responsePartId()}
+                                  hideResponsePart={hideResponsePart()}
+                                  hideReasoning={!working()}
+                                />
+                              )}
+                            </For>
+                            <Show when={error()}>
+                              <Card variant="error" class="error-card">
+                                {error()?.data?.message as string}
+                              </Card>
+                            </Show>
+                          </div>
+                        </Show>
+                        <Show when={!props.stepsExpanded && permissionParts().length > 0}>
+                          <div data-slot="session-turn-permission-parts">
+                            <For each={permissionParts()}>
+                              {({ part, message }) => <Part part={part} message={message} />}
+                            </For>
+                          </div>
+                        </Show>
+                        {/* Response */}
+                        <Show when={!working() && (response() || hasDiffs())}>
+                          <div data-slot="session-turn-summary-section">
+                            <div data-slot="session-turn-summary-copy">
+                              <Tooltip value={responseCopied() ? "Copied!" : "Copy"} placement="top" gutter={8}>
+                                <IconButton
+                                  icon={responseCopied() ? "check" : "copy"}
+                                  variant="secondary"
+                                  onClick={handleCopyResponse}
+                                />
+                              </Tooltip>
+                            </div>
+                            <div data-slot="session-turn-summary-header">
+                              <h2 data-slot="session-turn-summary-title">Response</h2>
+                              <Markdown
+                                data-slot="session-turn-markdown"
+                                data-diffs={hasDiffs()}
+                                text={response() ?? ""}
+                                cacheKey={responsePartId()}
+                              />
+                            </div>
+                            <Show when={(msg().summary?.diffs?.length ?? 0) > 0}>
+                              <div data-slot="session-turn-changes-title">
+                                Files changed
+                                <span data-slot="session-turn-changes-count">{msg().summary?.diffs?.length ?? 0}</span>
+                              </div>
+                            </Show>
+                            <Accordion
+                              data-slot="session-turn-accordion"
+                              multiple
+                              value={store.diffsOpen}
+                              onChange={(value) => {
+                                if (!Array.isArray(value)) return
+                                setStore("diffsOpen", value)
+                              }}
+                            >
+                              <For each={(msg().summary?.diffs ?? []).slice(0, store.diffLimit)}>
+                                {(diff) => (
+                                  <Accordion.Item value={diff.file}>
+                                    <StickyAccordionHeader>
+                                      <Accordion.Trigger>
+                                        <div data-slot="session-turn-accordion-trigger-content">
+                                          <div data-slot="session-turn-file-info">
+                                            <FileIcon
+                                              node={{ path: diff.file, type: "file" }}
+                                              data-slot="session-turn-file-icon"
+                                            />
+                                            <div data-slot="session-turn-file-path">
+                                              <Show when={diff.file.includes("/")}>
+                                                <span data-slot="session-turn-directory">
+                                                  {getDirectory(diff.file)}&lrm;
+                                                </span>
+                                              </Show>
+                                              <span data-slot="session-turn-filename">{getFilename(diff.file)}</span>
+                                            </div>
+                                          </div>
+                                          <div data-slot="session-turn-accordion-actions">
+                                            <DiffChanges changes={diff} />
+                                            <Icon name="chevron-grabber-vertical" size="small" />
+                                          </div>
+                                        </div>
+                                      </Accordion.Trigger>
+                                    </StickyAccordionHeader>
+                                    <Accordion.Content data-slot="session-turn-accordion-content">
+                                      <Show when={store.diffsOpen.includes(diff.file!)}>
+                                        <Dynamic
+                                          component={diffComponent}
+                                          before={{
+                                            name: diff.file!,
+                                            contents: diff.before!,
+                                          }}
+                                          after={{
+                                            name: diff.file!,
+                                            contents: diff.after!,
+                                          }}
+                                        />
+                                      </Show>
+                                    </Accordion.Content>
+                                  </Accordion.Item>
+                                )}
+                              </For>
+                            </Accordion>
+                            <Show when={(msg().summary?.diffs?.length ?? 0) > store.diffLimit}>
+                              <Button
+                                data-slot="session-turn-accordion-more"
+                                variant="ghost"
+                                size="small"
+                                onClick={() => {
+                                  const total = msg().summary?.diffs?.length ?? 0
+                                  setStore("diffLimit", (limit) => {
+                                    const next = limit + diffBatch
+                                    if (next > total) return total
+                                    return next
+                                  })
+                                }}
+                              >
+                                Show more changes ({(msg().summary?.diffs?.length ?? 0) - store.diffLimit})
+                              </Button>
+                            </Show>
+                          </div>
+                        </Show>
+                        <Show when={error() && !props.stepsExpanded}>
                           <Card variant="error" class="error-card">
                             {error()?.data?.message as string}
                           </Card>
                         </Show>
                       </div>
-                    </Show>
-                    <Show when={!props.stepsExpanded && permissionParts().length > 0}>
-                      <div data-slot="session-turn-permission-parts">
-                        <For each={permissionParts()}>
-                          {({ part, message }) => <Part part={part} message={message} />}
-                        </For>
-                      </div>
-                    </Show>
-                    {/* Response */}
-                    <Show when={!working() && (response() || hasDiffs())}>
-                      <div data-slot="session-turn-summary-section">
-                        <div data-slot="session-turn-summary-copy">
-                          <Tooltip value={responseCopied() ? "Copied!" : "Copy"} placement="top" gutter={8}>
-                            <IconButton
-                              icon={responseCopied() ? "check" : "copy"}
-                              variant="secondary"
-                              onClick={handleCopyResponse}
-                            />
-                          </Tooltip>
-                        </div>
-                        <div data-slot="session-turn-summary-header">
-                          <h2 data-slot="session-turn-summary-title">Response</h2>
-                          <Markdown
-                            data-slot="session-turn-markdown"
-                            data-diffs={hasDiffs()}
-                            text={response() ?? ""}
-                            cacheKey={responsePartId()}
-                          />
-                        </div>
-                        <Show when={(msg().summary?.diffs?.length ?? 0) > 0}>
-                          <div data-slot="session-turn-changes-title">
-                            Files changed
-                            <span data-slot="session-turn-changes-count">{msg().summary?.diffs?.length ?? 0}</span>
-                          </div>
-                        </Show>
-                        <Accordion
-                          data-slot="session-turn-accordion"
-                          multiple
-                          value={store.diffsOpen}
-                          onChange={(value) => {
-                            if (!Array.isArray(value)) return
-                            setStore("diffsOpen", value)
-                          }}
-                        >
-                          <For each={(msg().summary?.diffs ?? []).slice(0, store.diffLimit)}>
-                            {(diff) => (
-                              <Accordion.Item value={diff.file}>
-                                <StickyAccordionHeader>
-                                  <Accordion.Trigger>
-                                    <div data-slot="session-turn-accordion-trigger-content">
-                                      <div data-slot="session-turn-file-info">
-                                        <FileIcon
-                                          node={{ path: diff.file, type: "file" }}
-                                          data-slot="session-turn-file-icon"
-                                        />
-                                        <div data-slot="session-turn-file-path">
-                                          <Show when={diff.file.includes("/")}>
-                                            <span data-slot="session-turn-directory">
-                                              {getDirectory(diff.file)}&lrm;
-                                            </span>
-                                          </Show>
-                                          <span data-slot="session-turn-filename">{getFilename(diff.file)}</span>
-                                        </div>
-                                      </div>
-                                      <div data-slot="session-turn-accordion-actions">
-                                        <DiffChanges changes={diff} />
-                                        <Icon name="chevron-grabber-vertical" size="small" />
-                                      </div>
-                                    </div>
-                                  </Accordion.Trigger>
-                                </StickyAccordionHeader>
-                                <Accordion.Content data-slot="session-turn-accordion-content">
-                                  <Show when={store.diffsOpen.includes(diff.file!)}>
-                                    <Dynamic
-                                      component={diffComponent}
-                                      before={{
-                                        name: diff.file!,
-                                        contents: diff.before!,
-                                      }}
-                                      after={{
-                                        name: diff.file!,
-                                        contents: diff.after!,
-                                      }}
-                                    />
-                                  </Show>
-                                </Accordion.Content>
-                              </Accordion.Item>
-                            )}
-                          </For>
-                        </Accordion>
-                        <Show when={(msg().summary?.diffs?.length ?? 0) > store.diffLimit}>
-                          <Button
-                            data-slot="session-turn-accordion-more"
-                            variant="ghost"
-                            size="small"
-                            onClick={() => {
-                              const total = msg().summary?.diffs?.length ?? 0
-                              setStore("diffLimit", (limit) => {
-                                const next = limit + diffBatch
-                                if (next > total) return total
-                                return next
-                              })
-                            }}
-                          >
-                            Show more changes ({(msg().summary?.diffs?.length ?? 0) - store.diffLimit})
-                          </Button>
-                        </Show>
-                      </div>
-                    </Show>
-                    <Show when={error() && !props.stepsExpanded}>
-                      <Card variant="error" class="error-card">
-                        {error()?.data?.message as string}
-                      </Card>
                     </Show>
                   </Match>
                 </Switch>

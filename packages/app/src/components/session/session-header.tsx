@@ -1,4 +1,4 @@
-import { createMemo, createResource, Show } from "solid-js"
+import { createEffect, createMemo, createResource, Show } from "solid-js"
 import { A, useNavigate, useParams } from "@solidjs/router"
 import { useLayout } from "@/context/layout"
 import { useCommand } from "@/context/command"
@@ -17,10 +17,15 @@ import { Select } from "@opencode-ai/ui/select"
 import { Popover } from "@opencode-ai/ui/popover"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { DialogSelectServer } from "@/components/dialog-select-server"
+import { DialogSelectRuntime } from "@/components/dialog-select-runtime"
 import { SessionLspIndicator } from "@/components/session-lsp-indicator"
 import { SessionMcpIndicator } from "@/components/session-mcp-indicator"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { same } from "@/utils/same"
+import { Persist, persisted } from "@/utils/persist"
+import { createStore } from "solid-js/store"
+import type { SessionRuntime } from "@/types/session-runtime"
+import { useSandboxOnlyMode } from "@/utils/runtime-mode"
 
 export function SessionHeader() {
   const globalSDK = useGlobalSDK()
@@ -31,6 +36,20 @@ export function SessionHeader() {
   const server = useServer()
   const dialog = useDialog()
   const sync = useSync()
+  const sandboxOnly = useSandboxOnlyMode()
+  const inspectEnabled = createMemo(() => !!import.meta.env.VITE_INSPECT_API_URL)
+
+  const [newSessionPrefs, setNewSessionPrefs] = persisted(
+    Persist.global("new-session-prefs", ["new-session-prefs.v1"]),
+    createStore({
+      runtime: "local" as SessionRuntime,
+    }),
+  )
+
+  createEffect(() => {
+    if (!sandboxOnly()) return
+    if (newSessionPrefs.runtime !== "sandbox") setNewSessionPrefs("runtime", "sandbox")
+  })
 
   const projectDirectory = createMemo(() => base64Decode(params.dir ?? ""))
 
@@ -137,9 +156,29 @@ export function SessionHeader() {
               </div>
             </Show>
           </div>
-          <Show when={currentSession() && !parentSession()}>
-            <TooltipKeybind class="hidden xl:block" title="New session" keybind={command.keybind("session.new")}>
-              <IconButton as={A} href={`/${params.dir}/session`} icon="edit-small-2" variant="ghost" />
+          <Show when={!parentSession()}>
+            <TooltipKeybind class="shrink-0" title="New session" keybind={command.keybind("session.new")}>
+              <IconButton
+                icon="plus-small"
+                variant="ghost"
+                onClick={() => {
+                  if (sandboxOnly()) {
+                    setNewSessionPrefs("runtime", "sandbox")
+                    navigate(`/${params.dir}/session`)
+                    return
+                  }
+                  dialog.show(() => (
+                    <DialogSelectRuntime
+                      current={newSessionPrefs.runtime}
+                      inspectEnabled={inspectEnabled()}
+                      onSelect={(runtime) => {
+                        setNewSessionPrefs("runtime", runtime)
+                        navigate(`/${params.dir}/session`)
+                      }}
+                    />
+                  ))
+                }}
+              />
             </TooltipKeybind>
           </Show>
         </div>

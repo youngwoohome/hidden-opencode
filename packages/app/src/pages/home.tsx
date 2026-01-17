@@ -28,8 +28,7 @@ export default function Home() {
   const inspectRepo = useInspectRepo()
   const homedir = createMemo(() => sync.data.path.home)
   const [startingInspect, setStartingInspect] = createSignal(false)
-  const [autoStartAttempted, setAutoStartAttempted] = createSignal(false)
-  const [, setInspectSandboxes] = persisted(
+  const [inspectSandboxes, setInspectSandboxes] = persisted(
     Persist.global("inspect-sandboxes", ["inspect-sandboxes.v1"]),
     createStore({
       urls: [] as string[],
@@ -46,6 +45,18 @@ export default function Home() {
   const inspectApiUrl = () => import.meta.env.VITE_INSPECT_API_URL?.replace(/\/+$/, "")
   const inspectSandboxProvider = () => import.meta.env.VITE_INSPECT_SANDBOX_PROVIDER ?? "modal"
   const inspectModel = () => import.meta.env.VITE_INSPECT_MODEL
+  const isInspectContext = createMemo(() => {
+    const api = inspectApiUrl()
+    const url = server.url
+    if (!api || !url) return false
+    return url === api || inspectSandboxes.urls.includes(url)
+  })
+  const isInspectApi = createMemo(() => {
+    const api = inspectApiUrl()
+    const url = server.url
+    if (!api || !url) return false
+    return url === api
+  })
 
   function parseModel(input?: string) {
     if (!input) return undefined
@@ -58,6 +69,20 @@ export default function Home() {
     layout.projects.open(directory)
     navigate(`/${base64Encode(directory)}`)
   }
+
+  createEffect(() => {
+    // If we're already connected to a real server (local or sandbox) and we have projects,
+    // skip the Home screen and jump straight into the main app (DirectoryLayout → Session).
+    // Avoid doing this on the Inspect API "control plane" itself.
+    if (isInspectApi()) return
+    const projects = sync.data.project
+    if (!projects.length) return
+    const mostRecent = projects
+      .slice()
+      .sort((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created))[0]
+    if (!mostRecent?.worktree) return
+    openProject(mostRecent.worktree)
+  })
 
   async function chooseProject() {
     function resolve(result: string | string[] | null) {
@@ -143,13 +168,6 @@ export default function Home() {
     }
   }
 
-  createEffect(() => {
-    if (autoStartAttempted()) return
-    if (!inspectApiUrl()) return
-    setAutoStartAttempted(true)
-    void startInspectSandbox()
-  })
-
   return (
     <div class="mx-auto mt-55 w-full md:w-auto px-4">
       <Logo class="md:w-xl opacity-12" />
@@ -169,7 +187,7 @@ export default function Home() {
         />
         {server.name}
       </Button>
-      <Show when={inspectApiUrl()}>
+      <Show when={inspectApiUrl() && isInspectApi()}>
         <div class="mt-4 mx-auto flex flex-col items-center gap-2">
           <Button size="large" onClick={startInspectSandbox} disabled={startingInspect()}>
             {startingInspect() ? "Starting sandbox..." : "Start Inspect sandbox"}

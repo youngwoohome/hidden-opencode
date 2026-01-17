@@ -70,16 +70,25 @@ function ServerKey(props: ParentProps) {
 export function AppInterface(props: { defaultUrl?: string }) {
   const defaultServerUrl = () => {
     if (props.defaultUrl) return props.defaultUrl
-    if (import.meta.env.VITE_INSPECT_API_URL) return import.meta.env.VITE_INSPECT_API_URL
     if (location.hostname.includes("opencode.ai")) return "http://localhost:4096"
     if (import.meta.env.DEV)
       return `http://${import.meta.env.VITE_OPENCODE_SERVER_HOST ?? "localhost"}:${import.meta.env.VITE_OPENCODE_SERVER_PORT ?? "4096"}`
 
+    // Inspect API enables Inspect-specific features, but shouldn't hijack the default server
+    // on the web (especially when developing on localhost:3000).
     return window.location.origin
   }
 
+  const avoidUrls = () => {
+    const inspect = import.meta.env.VITE_INSPECT_API_URL?.replace(/\/+$/, "")
+    // On localhost web dev, don't let the Inspect API become the "active server" on boot.
+    if (!inspect) return []
+    if (location.hostname !== "localhost" && location.hostname !== "127.0.0.1") return []
+    return [inspect]
+  }
+
   return (
-    <ServerProvider defaultUrl={defaultServerUrl()}>
+    <ServerProvider defaultUrl={defaultServerUrl()} avoidUrls={avoidUrls()}>
       <ServerKey>
         <GlobalSDKProvider>
           <GlobalSyncProvider>

@@ -28,6 +28,7 @@ import { useLayout } from "@/context/layout"
 import { Terminal } from "@/components/terminal"
 import { checksum, base64Encode, base64Decode } from "@opencode-ai/util/encode"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { DialogSelectRuntime } from "@/components/dialog-select-runtime"
 import { DialogSelectFile } from "@/components/dialog-select-file"
 import { DialogSelectModel } from "@/components/dialog-select-model"
 import { DialogSelectMcp } from "@/components/dialog-select-mcp"
@@ -42,6 +43,9 @@ import { extractPromptFromParts } from "@/utils/prompt"
 import { ConstrainDragYAxis, getDraggableId } from "@/utils/solid-dnd"
 import { usePermission } from "@/context/permission"
 import { showToast } from "@opencode-ai/ui/toast"
+import { Persist, persisted } from "@/utils/persist"
+import type { SessionRuntime } from "@/types/session-runtime"
+import { useSandboxOnlyMode } from "@/utils/runtime-mode"
 import {
   SessionHeader,
   SessionContextTab,
@@ -159,6 +163,8 @@ export default function Page() {
   const sync = useSync()
   const terminal = useTerminal()
   const dialog = useDialog()
+  const inspectEnabled = createMemo(() => !!import.meta.env.VITE_INSPECT_API_URL)
+  const sandboxOnly = useSandboxOnlyMode()
   const codeComponent = useCodeComponent()
   const command = useCommand()
   const platform = usePlatform()
@@ -316,6 +322,18 @@ export default function Page() {
     promptHeight: 0,
   })
 
+  const [newSessionPrefs, setNewSessionPrefs] = persisted(
+    Persist.global("new-session-prefs", ["new-session-prefs.v1"]),
+    createStore({
+      runtime: "local" as SessionRuntime,
+    }),
+  )
+
+  createEffect(() => {
+    if (!sandboxOnly()) return
+    if (newSessionPrefs.runtime !== "sandbox") setNewSessionPrefs("runtime", "sandbox")
+  })
+
   const renderedUserMessages = createMemo(() => {
     const msgs = visibleUserMessages()
     const start = store.turnStart
@@ -423,7 +441,23 @@ export default function Page() {
       category: "Session",
       keybind: "mod+shift+s",
       slash: "new",
-      onSelect: () => navigate(`/${params.dir}/session`),
+      onSelect: () => {
+        if (sandboxOnly()) {
+          setNewSessionPrefs("runtime", "sandbox")
+          navigate(`/${params.dir}/session`)
+          return
+        }
+        dialog.show(() => (
+          <DialogSelectRuntime
+            current={newSessionPrefs.runtime}
+            inspectEnabled={inspectEnabled()}
+            onSelect={(runtime) => {
+              setNewSessionPrefs("runtime", runtime)
+              navigate(`/${params.dir}/session`)
+            }}
+          />
+        ))
+      },
     },
     {
       id: "file.open",
@@ -1203,6 +1237,8 @@ export default function Page() {
               <Match when={true}>
                 <NewSessionView
                   worktree={newSessionWorktree()}
+                  runtime={newSessionPrefs.runtime}
+                  onRuntimeChange={(value) => setNewSessionPrefs("runtime", value)}
                   onWorktreeChange={(value) => {
                     if (value === "create") {
                       setStore("newSessionWorktree", value)
@@ -1246,6 +1282,7 @@ export default function Page() {
                     inputRef = el
                   }}
                   newSessionWorktree={newSessionWorktree()}
+                  newSessionRuntime={newSessionPrefs.runtime}
                   onNewSessionWorktreeReset={() => setStore("newSessionWorktree", "main")}
                 />
               </Show>

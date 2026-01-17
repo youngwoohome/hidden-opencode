@@ -325,7 +325,11 @@ export function AssistantMessageDisplay(props: { message: AssistantMessage; part
     emptyParts,
     { equals: same },
   )
-  return <For each={filteredParts()}>{(part) => <Part part={part} message={props.message} />}</For>
+  return (
+    <div data-component="assistant-message">
+      <For each={filteredParts()}>{(part) => <Part part={part} message={props.message} />}</For>
+    </div>
+  )
 }
 
 export function UserMessageDisplay(props: { message: UserMessage; parts: PartType[] }) {

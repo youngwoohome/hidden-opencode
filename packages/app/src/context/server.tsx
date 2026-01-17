@@ -28,7 +28,7 @@ function projectsKey(url: string) {
 
 export const { use: useServer, provider: ServerProvider } = createSimpleContext({
   name: "Server",
-  init: (props: { defaultUrl: string }) => {
+  init: (props: { defaultUrl: string; avoidUrls?: string[] }) => {
     const platform = usePlatform()
 
     const [store, setStore, _, ready] = persisted(
@@ -86,7 +86,13 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
     createEffect(() => {
       if (!ready()) return
       if (active()) return
-      const url = normalizeServerUrl(store.active) ?? normalizeServerUrl(props.defaultUrl)
+      const avoided = (props.avoidUrls ?? [])
+        .map((x) => (typeof x === "string" ? normalizeServerUrl(x) : undefined))
+        .filter((x): x is string => !!x)
+
+      const fallback = normalizeServerUrl(props.defaultUrl)
+      let url = normalizeServerUrl(store.active) ?? fallback
+      if (url && avoided.includes(url)) url = fallback
       if (!url) return
       setActiveRaw(url)
       setStore("active", url)
@@ -118,6 +124,8 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       let busy = false
 
       const run = () => {
+        // Avoid unnecessary polling when the app is in the background (especially for remote sandboxes).
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return
         if (busy) return
         busy = true
         void check(url)
@@ -131,7 +139,10 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       }
 
       run()
-      const interval = setInterval(run, 10_000)
+      // Local dev benefits from a fast loop, but remote servers (e.g. Modal sandboxes) should be polled less
+      // aggressively to avoid request queueing and noisy health traffic.
+      const pollMs = projectsKey(url) === "local" ? 10_000 : 30_000
+      const interval = setInterval(run, pollMs)
 
       onCleanup(() => {
         alive = false

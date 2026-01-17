@@ -56,6 +56,7 @@ import { createOpencodeClient, type Message, type Part } from "@opencode-ai/sdk/
 import { Binary } from "@opencode-ai/util/binary"
 import { showToast } from "@opencode-ai/ui/toast"
 import { base64Encode } from "@opencode-ai/util/encode"
+import type { SessionRuntime } from "@/types/session-runtime"
 
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"]
 const ACCEPTED_FILE_TYPES = [...ACCEPTED_IMAGE_TYPES, "application/pdf"]
@@ -65,6 +66,7 @@ interface PromptInputProps {
   ref?: (el: HTMLDivElement) => void
   newSessionWorktree?: string
   onNewSessionWorktreeReset?: () => void
+  newSessionRuntime?: SessionRuntime
 }
 
 const PLACEHOLDERS = [
@@ -163,6 +165,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const needsInspectSession = createMemo(() => {
     if (!inspectEnabled()) return false
     if (params.id) return false
+    if (props.newSessionRuntime === "sandbox") return true
     const url = server.url
     if (!url) return false
     return url === inspectApiUrl() || isInspectSandbox()
@@ -848,9 +851,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     }
 
     prompt.set([...rawParts, ...images], cursorPosition)
-    if (trimmed.length > 0 || images.length > 0) {
-      triggerInspectWarmup()
-    }
     queueScroll()
   }
 
@@ -1148,6 +1148,14 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       showToast({
         title: "Select an agent and model",
         description: "Choose an agent and model before sending a prompt.",
+      })
+      return
+    }
+
+    if (props.newSessionRuntime === "sandbox" && !inspectEnabled() && !params.id) {
+      showToast({
+        title: "Sandbox not available",
+        description: "Inspect is not configured for this app (missing VITE_INSPECT_API_URL).",
       })
       return
     }

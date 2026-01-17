@@ -22,6 +22,7 @@ import { createStore, produce, reconcile } from "solid-js/store"
 import { Binary } from "@opencode-ai/util/binary"
 import { retry } from "@opencode-ai/util/retry"
 import { useGlobalSDK } from "./global-sdk"
+import { useServer } from "./server"
 import { ErrorPage, type InitError } from "../pages/error"
 import { batch, createContext, useContext, onCleanup, onMount, type ParentProps, Switch, Match } from "solid-js"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -64,6 +65,7 @@ type State = {
 
 function createGlobalSync() {
   const globalSDK = useGlobalSDK()
+  const server = useServer()
   const [globalStore, setGlobalStore] = createStore<{
     ready: boolean
     error?: InitError
@@ -113,20 +115,15 @@ function createGlobalSync() {
     globalSDK.client.session
       .list({ directory })
       .then((x) => {
-        const fourHoursAgo = Date.now() - 4 * 60 * 60 * 1000
-        const sessions = (x.data ?? [])
+        const raw = x.data
+        const list = Array.isArray(raw) ? raw : []
+        const sessions = list
           .filter((s) => !!s?.id)
           .slice()
           .sort((a, b) => a.id.localeCompare(b.id))
-        const active = sessions.filter((s) => !s.time?.archived)
-        const inactive = sessions.filter((s) => s.time?.archived)
-        // Include up to the limit, plus any updated in the last 4 hours
-        const activeLimited = active.filter((s, i) => {
-          if (i < store.limit) return true
-          const updated = new Date(s.time?.updated ?? s.time?.created).getTime()
-          return updated > fourHoursAgo
-        })
-        setStore("session", reconcile([...activeLimited, ...inactive], { key: "id" }))
+        // Keep the full session list in memory so the UI can re-group sessions
+        // (eg. local/sandbox/inactive-by-time) without losing older unarchived sessions.
+        setStore("session", reconcile(sessions, { key: "id" }))
       })
       .catch((err) => {
         console.error("Failed to load sessions", err)
@@ -413,6 +410,24 @@ function createGlobalSync() {
       .then((x) => x.data)
       .catch(() => undefined)
     if (!health?.healthy) {
+      // If the stored server URL is stale (common with Inspect sandboxes), try to
+      // recover by switching to a fallback server before showing the fatal error.
+      // Guard with sessionStorage to avoid loops.
+      try {
+        const recoveryKey = "opencode.server.recover.v1"
+        const attemptedFrom = sessionStorage.getItem(recoveryKey)
+        if (attemptedFrom !== globalSDK.url) {
+          const before = server.url
+          server.remove(globalSDK.url)
+          const after = server.url
+          if (after && after !== before) {
+            sessionStorage.setItem(recoveryKey, globalSDK.url)
+            return
+          }
+        }
+      } catch {
+        // ignore
+      }
       setGlobalStore(
         "error",
         new Error(`Could not connect to server. Is there a server running at \`${globalSDK.url}\`?`),
@@ -491,6 +506,9 @@ export function GlobalSyncProvider(props: ParentProps) {
       </Match>
       <Match when={value.ready}>
         <GlobalSyncContext.Provider value={value}>{props.children}</GlobalSyncContext.Provider>
+      </Match>
+      <Match when={true}>
+        <div class="size-full flex items-center justify-center text-text-weak">Loading...</div>
       </Match>
     </Switch>
   )

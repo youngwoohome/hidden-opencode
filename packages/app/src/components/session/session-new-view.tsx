@@ -4,6 +4,11 @@ import { useSync } from "@/context/sync"
 import { Icon } from "@opencode-ai/ui/icon"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
 import { Select } from "@opencode-ai/ui/select"
+import { Button } from "@opencode-ai/ui/button"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { DialogSelectRuntime } from "@/components/dialog-select-runtime"
+import type { SessionRuntime } from "@/types/session-runtime"
+import { useSandboxOnlyMode } from "@/utils/runtime-mode"
 
 const MAIN_WORKTREE = "main"
 const CREATE_WORKTREE = "create"
@@ -11,10 +16,14 @@ const CREATE_WORKTREE = "create"
 interface NewSessionViewProps {
   worktree: string
   onWorktreeChange: (value: string) => void
+  runtime: SessionRuntime
+  onRuntimeChange: (value: SessionRuntime) => void
 }
 
 export function NewSessionView(props: NewSessionViewProps) {
   const sync = useSync()
+  const dialog = useDialog()
+  const sandboxOnly = useSandboxOnlyMode()
 
   const sandboxes = createMemo(() => sync.project?.sandboxes ?? [])
   const options = createMemo(() => [MAIN_WORKTREE, ...sandboxes(), CREATE_WORKTREE])
@@ -29,6 +38,9 @@ export function NewSessionView(props: NewSessionViewProps) {
     if (!project) return false
     return sync.data.path.directory !== project.worktree
   })
+
+  const inspectEnabled = createMemo(() => !!import.meta.env.VITE_INSPECT_API_URL)
+  const runtimeLabel = (value: SessionRuntime) => (value === "sandbox" ? "Sandbox" : "Local")
 
   const label = (value: string) => {
     if (value === MAIN_WORKTREE) {
@@ -55,6 +67,29 @@ export function NewSessionView(props: NewSessionViewProps) {
           {getDirectory(projectRoot())}
           <span class="text-text-strong">{getFilename(projectRoot())}</span>
         </div>
+      </div>
+      <div class="flex justify-center items-center gap-1">
+        <Icon name="server" size="small" />
+        <Button
+          variant="ghost"
+          size="normal"
+          class="text-12-medium"
+          onClick={() => {
+            if (sandboxOnly()) return
+            dialog.show(() => (
+              <DialogSelectRuntime
+                current={props.runtime}
+                inspectEnabled={inspectEnabled()}
+                onSelect={(runtime) => props.onRuntimeChange(runtime)}
+              />
+            ))
+          }}
+        >
+          {runtimeLabel(props.runtime)}
+          <Show when={!sandboxOnly()}>
+            <Icon name="chevron-down" size="small" class="text-icon-base" />
+          </Show>
+        </Button>
       </div>
       <div class="flex justify-center items-center gap-1">
         <Icon name="branch" size="small" />
